@@ -1,0 +1,9 @@
+{
+  "name": "Ozichat",
+  "description": "A secure, next-generation messaging application with a focus on privacy, verified identity, and a clean user experience, powered by Gemini.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "geolocation"
+  ]
+}

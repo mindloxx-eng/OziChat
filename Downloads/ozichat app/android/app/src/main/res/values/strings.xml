@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ozichat</string>
+    <string name="title_activity_main">Ozichat</string>
+    <string name="package_name">com.ozichat.app</string>
+    <string name="custom_url_scheme">com.ozichat.app</string>
+</resources>
