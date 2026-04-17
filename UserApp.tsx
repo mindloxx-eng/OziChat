@@ -9,7 +9,7 @@ import VerificationScreen from './components/VerificationScreen';
 import type { Contact, Group, GlobalCall, AppSettings, ChatListItem, Advertisement } from './types';
 import * as backend from './services/backendService';
 import { App as CapApp } from '@capacitor/app';
-import { getConversations, getOrCreateDirectConversation, getGroup, getGroupMembers, updateGroup, addGroupMembers, removeGroupMember, changeGroupMemberRole, createGroupInviteLink, revokeGroupInviteLink, joinGroupByToken, getGroupPinnedMessages, pinGroupMessage, unpinGroupMessage, setGroupAnnouncement, getUserById, searchUsers, logout as apiLogout, getMyProfile } from './services/apiService';
+import { getConversations, getOrCreateDirectConversation, getGroup, getGroupMembers, updateGroup, addGroupMembers, removeGroupMember, changeGroupMemberRole, createGroupInviteLink, revokeGroupInviteLink, joinGroupByToken, getGroupPinnedMessages, pinGroupMessage, unpinGroupMessage, setGroupAnnouncement, getUserById, searchUsers, normalizeMediaUrl, logout as apiLogout, getMyProfile } from './services/apiService';
 import { isAuthenticated, getUserId, clearAuthTokens } from './services/tokenService';
 import { wsService } from './services/websocketService';
 
@@ -234,7 +234,7 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
           if (res.success && res.data) {
             const p = res.data;
             if (p.displayName) localStorage.setItem('ozichat_display_name', p.displayName);
-            if (p.avatarUrl) localStorage.setItem('ozichat_profile_picture', p.avatarUrl);
+            if (p.avatarUrl) localStorage.setItem('ozichat_profile_picture', normalizeMediaUrl(p.avatarUrl));
             if (p.about) localStorage.setItem('ozichat_status_message', p.about);
             if (p.phone) localStorage.setItem('ozichat_user_phone', p.phone);
             if (p.email) localStorage.setItem('ozichat_user_email', p.email);
@@ -255,7 +255,7 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
             const timestamp = conv.updatedAt
               ? new Date(conv.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : '';
-            const avatarUrl = conv.avatarUrl || `https://picsum.photos/seed/${conv.conversationId}/80/80`;
+            const avatarUrl = normalizeMediaUrl(conv.avatarUrl) || `https://picsum.photos/seed/${conv.conversationId}/80/80`;
 
             if (conv.type === 'GROUP') {
               groupChats.push({
@@ -436,6 +436,7 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
     getUserById,
     searchUsers,
   };
+  (window as any).wsService = wsService; // For manual retry() after CORS fix
 
   const handleNavigateToProfile = () => setAppState('profile');
   const handleNavigateToContactDetails = () => {

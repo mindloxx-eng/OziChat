@@ -17,7 +17,7 @@ import { ShieldCheckIcon } from './icons/ShieldCheckIcon';
 import { SparklesIcon } from './icons/SparklesIcon';
 import { KeyIcon } from './icons/KeyIcon';
 import * as backend from '../services/backendService';
-import { uploadMedia, updateMyProfile } from '../services/apiService';
+import { uploadMedia, updateMyProfile, normalizeMediaUrl } from '../services/apiService';
 import { isAuthenticated } from '../services/tokenService';
 
 interface ProfileScreenProps {
@@ -72,7 +72,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onNavigateToVerif
           if (res.success && res.data) {
             const p = res.data;
             if (p.displayName) { localStorage.setItem('ozichat_display_name', p.displayName); setName(p.displayName); }
-            if (p.avatarUrl) { localStorage.setItem('ozichat_profile_picture', p.avatarUrl); setImageSrc(p.avatarUrl); }
+            if (p.avatarUrl) { const url = normalizeMediaUrl(p.avatarUrl); localStorage.setItem('ozichat_profile_picture', url); setImageSrc(url); }
             if (p.about) { localStorage.setItem('ozichat_status_message', p.about); setStatus(p.about); }
             if (p.phone) { localStorage.setItem('ozichat_user_phone', p.phone); setPhone(p.phone); }
           }

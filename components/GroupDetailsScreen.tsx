@@ -26,6 +26,7 @@ import {
   setGroupAnnouncement,
   getConversations,
   getConversationById,
+  normalizeMediaUrl,
   type GroupData,
   type ConversationMember,
 } from '../services/apiService';
@@ -213,7 +214,7 @@ const GroupDetailsScreen: React.FC<GroupDetailsScreenProps> = ({ group, onBack }
         .map((c) => ({
           conversationId: c.conversationId,
           displayName: c.displayName || 'Unknown',
-          avatarUrl: c.avatarUrl || `https://picsum.photos/seed/${c.conversationId}/80/80`,
+          avatarUrl: normalizeMediaUrl(c.avatarUrl) || `https://picsum.photos/seed/${c.conversationId}/80/80`,
         }));
 
       setAvailableUsers(directConvs);
@@ -267,7 +268,7 @@ const GroupDetailsScreen: React.FC<GroupDetailsScreenProps> = ({ group, onBack }
     return null;
   };
 
-  const groupAvatar = groupInfo?.groupAvatarUrl || group.avatarUrl;
+  const groupAvatar = normalizeMediaUrl(groupInfo?.groupAvatarUrl) || normalizeMediaUrl(group.avatarUrl);
   const groupName = groupInfo?.groupName || group.name;
   const memberCount = groupInfo?.currentMemberCount ?? members.length;
 
@@ -422,7 +423,7 @@ const GroupDetailsScreen: React.FC<GroupDetailsScreenProps> = ({ group, onBack }
           <div className="bg-[#1C1C2E] rounded-t-[2rem] w-full max-w-md p-6 border-t border-white/10" onClick={(e) => e.stopPropagation()}>
             <div className="w-10 h-1 bg-gray-600 rounded-full mx-auto mb-6"></div>
             <div className="flex items-center gap-4 mb-6">
-              <img src={selectedMember.avatarUrl || `https://picsum.photos/seed/${selectedMember.userId}/80/80`} alt="" className="w-14 h-14 rounded-full object-cover" />
+              <img src={normalizeMediaUrl(selectedMember.avatarUrl) || `https://picsum.photos/seed/${selectedMember.userId}/80/80`} alt="" className="w-14 h-14 rounded-full object-cover" />
               <div>
                 <p className="font-black text-lg">{selectedMember.displayName}</p>
                 <div className="mt-1">{getRoleBadge(selectedMember.role)}</div>
@@ -588,7 +589,7 @@ const GroupDetailsScreen: React.FC<GroupDetailsScreenProps> = ({ group, onBack }
                     }}
                     className={`w-full flex items-center gap-4 p-5 hover:bg-white/5 transition-colors ${idx < members.length - 1 ? 'border-b border-white/5' : ''}`}>
                     <img
-                      src={member.avatarUrl || `https://picsum.photos/seed/${member.userId}/80/80`}
+                      src={normalizeMediaUrl(member.avatarUrl) || `https://picsum.photos/seed/${member.userId}/80/80`}
                       alt={member.displayName}
                       className="w-10 h-10 rounded-full object-cover" />
                     <div className="flex-1 text-left">
