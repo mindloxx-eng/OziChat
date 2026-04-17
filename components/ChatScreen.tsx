@@ -88,6 +88,12 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
   const [editText, setEditText] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<Message | null>(null);
 
+  // Typing / Presence (real-time via WebSocket)
+  const [otherTyping, setOtherTyping] = useState(false);
+  const [otherPresence, setOtherPresence] = useState<{ isOnline: boolean; lastSeenAt?: string }>({ isOnline: false });
+  const typingSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const otherTypingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // UI States
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -232,7 +238,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
       }
     });
 
-    // Listen for notifications (delivered/read ticks, typing)
+    // Listen for notifications (delivered/read ticks, typing, presence)
     const unsubNotif = wsService.onNotification((notif) => {
       if (notif.type === 'DELIVERED' && notif.messageId) {
         setMessages((prev) =>
@@ -242,6 +248,20 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
         setMessages((prev) =>
           prev.map((m) => m.id === notif.messageId ? { ...m, status: 'read' } : m)
         );
+      } else if (notif.type === 'TYPING' && notif.conversationId === conversationId && notif.byUserId !== currentUserId) {
+        // Someone else is typing in this conversation
+        setOtherTyping(!!notif.isTyping);
+        // Auto-hide after 5s in case server stops sending (TTL is 4s)
+        if (otherTypingClearRef.current) clearTimeout(otherTypingClearRef.current);
+        if (notif.isTyping) {
+          otherTypingClearRef.current = setTimeout(() => setOtherTyping(false), 5000);
+        }
+      } else if (notif.type === 'PRESENCE' && !('members' in chat)) {
+        // Update presence for the other user in a direct chat
+        setOtherPresence({
+          isOnline: notif.status === 'ONLINE',
+          lastSeenAt: notif.lastSeenAt,
+        });
       }
     });
 
@@ -249,6 +269,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
       unsubMsg();
       unsubNotif();
       wsService.unsubscribeFromConversation(conversationId);
+      if (typingSendTimerRef.current) clearTimeout(typingSendTimerRef.current);
+      if (otherTypingClearRef.current) clearTimeout(otherTypingClearRef.current);
       createdBlobUrls.current.forEach(url => URL.revokeObjectURL(url));
       stopCamera();
     };
@@ -913,10 +935,19 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
                 <img src={chat.avatarUrl} alt={chat.name} className="w-10 h-10 rounded-full border-2 border-[#3F9BFF]/60 object-cover shadow-lg" />
                 <div className="flex flex-col min-w-0 text-left">
                     <h2 className="text-lg font-black text-black dark:text-[#F1F5F9] truncate group-hover:text-indigo-500 transition-colors tracking-tight">{chat.name}</h2>
-                    <div className="flex items-center gap-1.5 opacity-60" onClick={(e) => { e.stopPropagation(); setShowSafetyNumber(true); }}>
-                        <LockClosedIcon className="w-3 h-3 text-green-500" />
-                        <span className="text-[9px] font-black text-gray-500 dark:text-slate-400 uppercase tracking-widest whitespace-nowrap secure-pulse cursor-pointer hover:text-[#3F9BFF]">Highly Encrypted</span>
-                    </div>
+                    {/* Presence / Typing (direct chats only) */}
+                    {!isGroupChat && otherTyping ? (
+                      <span className="text-[10px] font-bold text-[#3F9BFF] tracking-wide">typing...</span>
+                    ) : !isGroupChat && otherPresence.isOnline ? (
+                      <span className="text-[10px] font-bold text-green-500 tracking-wide">online</span>
+                    ) : !isGroupChat && otherPresence.lastSeenAt ? (
+                      <span className="text-[10px] font-bold text-gray-500 tracking-wide">last seen {new Date(otherPresence.lastSeenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    ) : (
+                      <div className="flex items-center gap-1.5 opacity-60" onClick={(e) => { e.stopPropagation(); setShowSafetyNumber(true); }}>
+                          <LockClosedIcon className="w-3 h-3 text-green-500" />
+                          <span className="text-[9px] font-black text-gray-500 dark:text-slate-400 uppercase tracking-widest whitespace-nowrap secure-pulse cursor-pointer hover:text-[#3F9BFF]">Highly Encrypted</span>
+                      </div>
+                    )}
                 </div>
             </button>
         </div>
@@ -1001,6 +1032,18 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
                 </div>
             </div>
         )}
+        {otherTyping && !isLoading && (
+            <div className="flex justify-start items-end gap-2 animate-fade-in-fast">
+                <img src={chat.avatarUrl} alt={chat.name} className="w-6 h-6 rounded-full object-cover" />
+                <div className="bg-gray-100 dark:bg-white/5 rounded-2xl rounded-bl-none px-4 py-2.5 shadow-sm border border-gray-100 dark:border-white/5">
+                    <div className="flex gap-1 items-center">
+                        <span className="w-1.5 h-1.5 bg-[#3F9BFF] rounded-full animate-bounce"></span>
+                        <span className="w-1.5 h-1.5 bg-[#3F9BFF] rounded-full animate-bounce delay-75"></span>
+                        <span className="w-1.5 h-1.5 bg-[#3F9BFF] rounded-full animate-bounce delay-150"></span>
+                    </div>
+                </div>
+            </div>
+        )}
         <div ref={messagesEndRef} />
       </main>
 
@@ -1068,7 +1111,18 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
                     ref={textareaRef}
                     rows={1}
                     value={input} 
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      // Send typing indicator via WebSocket (debounced — re-send every 3s while typing)
+                      if (wsService.isConnected() && !isNaN(conversationId) && e.target.value.trim()) {
+                        if (!typingSendTimerRef.current) {
+                          wsService.sendTyping({ conversationId, isTyping: true });
+                          typingSendTimerRef.current = setTimeout(() => {
+                            typingSendTimerRef.current = null;
+                          }, 3000);
+                        }
+                      }
+                    }}
                     placeholder="Type encrypted transmission..."
                     className="w-full bg-transparent border-none focus:ring-0 py-3.5 text-sm font-bold text-black dark:text-[#F1F5F9] focus:outline-none transition-all resize-none overflow-hidden max-h-32"
                 />

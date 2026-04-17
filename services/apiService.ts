@@ -15,6 +15,24 @@ const NGROK_BASE = 'https://unfeeling-appeasingly-natacha.ngrok-free.dev';
 const API_BASE_URL = process.env.API_BASE_URL || `${NGROK_BASE}/api/v1`;
 
 export const WS_URL = `${NGROK_BASE}/ws/chat`;
+// Native WebSocket endpoint (Spring STOMP default). Avoids SockJS /info CORS.
+export const WS_NATIVE_URL = `${NGROK_BASE.replace(/^https/, 'wss').replace(/^http/, 'ws')}/ws/chat/websocket`;
+
+/**
+ * Fix backend URLs that point to localhost (dev misconfiguration).
+ * Replaces `http://localhost:8080` with the public ngrok base URL.
+ * Safe for null/undefined — returns empty string.
+ */
+export function normalizeMediaUrl(url?: string | null): string {
+  if (!url) return '';
+  if (url.startsWith('http://localhost:8080')) {
+    return url.replace('http://localhost:8080', NGROK_BASE);
+  }
+  if (url.startsWith('https://localhost:8080')) {
+    return url.replace('https://localhost:8080', NGROK_BASE);
+  }
+  return url;
+}
 
 // ── Types ────────────────────────────────────────────────────
 

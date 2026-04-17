@@ -6,7 +6,7 @@
 import { Client, IFrame, IMessage } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { getAccessToken, setLastSeenAt, getLastSeenAt } from './tokenService';
-import { WS_URL, getMissedMessages, type MessageData, type WsNotification } from './apiService';
+import { WS_URL, WS_NATIVE_URL, getMissedMessages, type MessageData, type WsNotification } from './apiService';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -16,6 +16,15 @@ export interface SendMessagePayload {
   type: 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | 'LOCATION';
   tempId: string;
   replyTo?: string;
+  // Optional media fields — for IMAGE/VIDEO/AUDIO/DOCUMENT messages
+  mediaUrl?: string;
+  mediaThumbnailUrl?: string;
+  mediaMimeType?: string;
+  mediaFileSize?: number;
+  mediaFileName?: string;
+  mediaDuration?: number;
+  mediaWidth?: number;
+  mediaHeight?: number;
 }
 
 export interface ReadReceiptPayload {
@@ -34,19 +43,34 @@ type ConnectionHandler = (connected: boolean) => void;
 
 // ── Singleton WebSocket Manager ──────────────────────────────
 
-// Feature flag — disable WebSocket entirely until backend CORS is configured.
-// Set to true once backend allows localhost:3000 on /ws/chat endpoint.
-const ENABLE_WEBSOCKET = false;
+// Feature flag — controls whether WebSocket is used for real-time messaging.
+const ENABLE_WEBSOCKET = true;
+
+// Max number of consecutive failed connection attempts before giving up
+// (prevents console spam on CORS-blocked /ws/chat endpoint)
+const MAX_CONSECUTIVE_FAILURES = 3;
+
+// Use native WebSocket by default — avoids SockJS /info endpoint CORS issues.
+// Falls back to SockJS if native fails.
+const USE_NATIVE_WS = true;
 
 class WebSocketService {
   private client: Client | null = null;
   private messageHandlers: MessageHandler[] = [];
   private notificationHandlers: NotificationHandler[] = [];
   private connectionHandlers: ConnectionHandler[] = [];
+  // Active STOMP subscription objects (only valid when connected)
   private conversationSubscriptions = new Map<number, { unsubscribe: () => void }>();
+  // Desired conversation IDs — survives disconnects, used to (re)subscribe on connect
+  private desiredConversations = new Set<number>();
   private connected = false;
+  // Track consecutive failures to stop retrying on CORS errors
+  private failureCount = 0;
+  private gaveUp = false;
+  private fallbackToSockJS = false;
 
-  /** Connect to the WebSocket server with JWT auth. */
+  /** Connect to the WebSocket server with JWT auth.
+   *  Always reads a fresh token on each (re)connect attempt. */
   connect(): void {
     if (!ENABLE_WEBSOCKET) {
       console.log('🔌 WebSocket disabled — using REST-only mode');
@@ -60,25 +84,50 @@ class WebSocketService {
     }
 
     if (this.client?.active) {
-      console.log('🔌 WebSocket: Already connected');
+      console.log('🔌 WebSocket: Already active — skipping duplicate connect');
       return;
     }
 
+    if (this.gaveUp) {
+      console.warn('🔌 WebSocket: Giving up — backend CORS or endpoint unreachable. Call retry() to try again.');
+      return;
+    }
+
+    // Reset failure tracking on manual connect
+    this.failureCount = 0;
+
+    const useNative = USE_NATIVE_WS && !this.fallbackToSockJS;
+    console.log(`🔌 WebSocket connecting via ${useNative ? 'native WebSocket' : 'SockJS'} with Authorization: Bearer ...`);
+    console.log(`🔌 Endpoint: ${useNative ? WS_NATIVE_URL : WS_URL}`);
+
     this.client = new Client({
-      webSocketFactory: () => new SockJS(WS_URL),
+      webSocketFactory: () => useNative
+        ? (new WebSocket(WS_NATIVE_URL) as any)
+        : (new SockJS(WS_URL) as any),
+      // Fresh token on every connection attempt (handles token refresh)
+      beforeConnect: () => {
+        const freshToken = getAccessToken();
+        if (freshToken && this.client) {
+          this.client.connectHeaders = {
+            Authorization: `Bearer ${freshToken}`,
+          };
+          console.log('🔑 WS CONNECT frame: Authorization header attached');
+        }
+      },
       connectHeaders: {
         Authorization: `Bearer ${token}`,
       },
-      reconnectDelay: 0, // no auto-reconnect to avoid infinite CORS error loop
+      reconnectDelay: 5000, // auto-reconnect after 5s
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
 
       onConnect: () => {
-        console.log('🟢 WebSocket CONNECTED');
+        console.log('🟢 WebSocket CONNECTED (STOMP authenticated via JWT)');
         this.connected = true;
+        this.failureCount = 0; // Reset on successful connect
         this.connectionHandlers.forEach((h) => h(true));
 
-        // Subscribe to personal queues
+        // Step 1: Subscribe to personal queues immediately after CONNECTED
         this.client!.subscribe('/user/queue/messages', (frame: IMessage) => {
           try {
             const message: MessageData = JSON.parse(frame.body);
@@ -99,7 +148,12 @@ class WebSocketService {
           }
         });
 
-        // Sync missed messages since last disconnect
+        // Step 2: Subscribe to all desired conversation rooms
+        // (some may have been requested before connection completed)
+        this.conversationSubscriptions.clear();
+        this.desiredConversations.forEach((convId) => this._activateRoomSubscription(convId));
+
+        // Step 3: Sync missed messages since last disconnect
         this.syncMissedMessages();
       },
 
@@ -115,22 +169,51 @@ class WebSocketService {
       },
 
       onWebSocketError: (event: Event) => {
-        console.error('🔴 WebSocket Error:', event);
+        this.failureCount++;
+        if (this.failureCount === 1) {
+          console.error(`🔴 WebSocket Error (${USE_NATIVE_WS && !this.fallbackToSockJS ? 'native' : 'SockJS'}):`, event);
+        }
+        // After 2 native-WS failures, try SockJS fallback
+        if (USE_NATIVE_WS && !this.fallbackToSockJS && this.failureCount >= 2) {
+          console.warn('🔄 Native WS failed — falling back to SockJS...');
+          this.fallbackToSockJS = true;
+          this.failureCount = 0;
+          try { this.client?.deactivate(); } catch {}
+          this.client = null;
+          setTimeout(() => this.connect(), 500);
+          return;
+        }
+        if (this.failureCount >= MAX_CONSECUTIVE_FAILURES) {
+          console.warn(`🔌 WebSocket: Gave up after ${MAX_CONSECUTIVE_FAILURES} failures. Backend CORS on /ws/chat likely needs fixing. App will run in REST-only mode.`);
+          console.warn('💡 Once backend CORS is fixed, call window.wsService.retry() to reconnect.');
+          this.gaveUp = true;
+          try { this.client?.deactivate(); } catch {}
+        }
       },
     });
 
     this.client.activate();
   }
 
-  /** Disconnect from WebSocket. */
+  /** Retry connection after giving up (e.g. after backend CORS is fixed). */
+  retry(): void {
+    console.log('🔌 WebSocket: Retrying connection...');
+    this.gaveUp = false;
+    this.failureCount = 0;
+    this.fallbackToSockJS = false; // Try native again first
+    this.connect();
+  }
+
+  /** Disconnect from WebSocket (e.g. on logout). */
   disconnect(): void {
     if (this.client?.active) {
       setLastSeenAt(new Date().toISOString());
-      this.conversationSubscriptions.forEach((sub) => sub.unsubscribe());
+      this.conversationSubscriptions.forEach((sub) => { try { sub.unsubscribe(); } catch {} });
       this.conversationSubscriptions.clear();
+      this.desiredConversations.clear();
       this.client.deactivate();
       this.connected = false;
-      console.log('🔌 WebSocket disconnected');
+      console.log('🔌 WebSocket disconnected (manual)');
     }
   }
 
@@ -139,17 +222,26 @@ class WebSocketService {
     return this.connected;
   }
 
-  /** Subscribe to a conversation room for real-time messages. */
+  /** Subscribe to a conversation room for real-time messages.
+   *  Safe to call even if WS isn't connected yet — will activate on connect. */
   subscribeToConversation(conversationId: number): void {
     if (!ENABLE_WEBSOCKET) return;
-    if (!this.client?.active) {
-      console.warn('🔌 WebSocket not connected — cannot subscribe to conversation');
-      return;
-    }
 
-    if (this.conversationSubscriptions.has(conversationId)) {
-      return; // Already subscribed
+    // Always track as desired (survives disconnects)
+    this.desiredConversations.add(conversationId);
+
+    // If already connected, activate immediately
+    if (this.client?.active && this.connected) {
+      this._activateRoomSubscription(conversationId);
+    } else {
+      console.log(`📥 Queued subscription for conversation ${conversationId} (WS not yet connected)`);
     }
+  }
+
+  /** Internal: actually open a STOMP subscription for a conversation room. */
+  private _activateRoomSubscription(conversationId: number): void {
+    if (!this.client?.active) return;
+    if (this.conversationSubscriptions.has(conversationId)) return; // already active
 
     const sub = this.client.subscribe(
       `/topic/conversation/${conversationId}`,
@@ -165,10 +257,12 @@ class WebSocketService {
     );
 
     this.conversationSubscriptions.set(conversationId, sub);
+    console.log(`🟢 Subscribed to /topic/conversation/${conversationId}`);
   }
 
   /** Unsubscribe from a conversation room. */
   unsubscribeFromConversation(conversationId: number): void {
+    this.desiredConversations.delete(conversationId);
     const sub = this.conversationSubscriptions.get(conversationId);
     if (sub) {
       sub.unsubscribe();

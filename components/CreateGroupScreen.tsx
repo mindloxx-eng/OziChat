@@ -16,66 +16,41 @@ interface CreateGroupScreenProps {
   onGroupCreated?: (chat: ChatListItem) => void;
 }
 
-interface ApiUser {
-  userId: number;
+interface DirectContact {
+  conversationId: number;
   displayName: string;
   avatarUrl: string;
 }
 
 const CreateGroupScreen: React.FC<CreateGroupScreenProps> = ({ contacts, onBack, onSaveGroup, onGroupCreated }) => {
   const [groupName, setGroupName] = useState('');
-  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set()); // stores conversationId as string
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // API users fetched from conversations
-  const [apiUsers, setApiUsers] = useState<ApiUser[]>([]);
+  // API users fetched from conversations (single call, no detail lookup)
+  const [apiUsers, setApiUsers] = useState<DirectContact[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
-  // Fetch real users from conversations API on mount
+  // Fetch conversations on mount — single API call, show DIRECT only
   useEffect(() => {
     if (!isAuthenticated()) return;
     setIsLoadingUsers(true);
-    const myId = getUserId();
 
     getConversations()
-      .then(async (res) => {
-        const conversations = res.data || [];
-        const directConvs = conversations.filter((c) => c.type === 'DIRECT');
-
-        // Fetch detail for each DIRECT conversation to get userId
-        const results = await Promise.allSettled(
-          directConvs.map(async (conv) => {
-            const detail = await getConversationById(conv.conversationId);
-            if (!detail.success || !detail.data.members) return null;
-            const other = detail.data.members.find((m) => m.userId !== myId) || detail.data.members[0];
-            if (!other) return null;
-            return {
-              userId: other.userId,
-              displayName: conv.displayName || other.displayName,
-              avatarUrl: conv.avatarUrl || other.avatarUrl || `https://picsum.photos/seed/${other.userId}/80/80`,
-            } as ApiUser;
-          })
-        );
-
-        const users = results
-          .filter((r): r is PromiseFulfilledResult<ApiUser | null> => r.status === 'fulfilled')
-          .map((r) => r.value)
-          .filter((u): u is ApiUser => u !== null);
-
-        // Deduplicate by userId
-        const seen = new Set<number>();
-        const unique = users.filter((u) => {
-          if (seen.has(u.userId)) return false;
-          seen.add(u.userId);
-          return true;
-        });
-
-        setApiUsers(unique);
-        console.log('🟢 Loaded users for group selection:', unique);
+      .then((res) => {
+        const directConvs = (res.data || [])
+          .filter((c) => c.type === 'DIRECT')
+          .map((c) => ({
+            conversationId: c.conversationId,
+            displayName: c.displayName || 'Unknown',
+            avatarUrl: c.avatarUrl || `https://picsum.photos/seed/${c.conversationId}/80/80`,
+          }));
+        setApiUsers(directConvs);
+        console.log('🟢 Loaded conversations for group selection:', directConvs);
       })
-      .catch((err) => console.warn('Failed to load users:', err))
+      .catch((err) => console.warn('Failed to load conversations:', err))
       .finally(() => setIsLoadingUsers(false));
   }, []);
 
@@ -94,7 +69,7 @@ const CreateGroupScreen: React.FC<CreateGroupScreenProps> = ({ contacts, onBack,
   // Use API users if available, fallback to local contacts
   const useApiUsers = isAuthenticated() && apiUsers.length > 0;
 
-  const filteredApiUsers = apiUsers.filter((u) =>
+  const filteredApiUsers = apiUsers.filter((u: DirectContact) =>
     u.displayName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -112,7 +87,25 @@ const CreateGroupScreen: React.FC<CreateGroupScreenProps> = ({ contacts, onBack,
 
     if (isAuthenticated()) {
       try {
-        const memberIds = Array.from(selectedContactIds).map(Number).filter((n) => !isNaN(n));
+        // Resolve userIds from selected conversationIds
+        const myId = getUserId();
+        const selectedConvIds = Array.from(selectedContactIds).map(Number).filter((n) => !isNaN(n));
+        const memberIds: number[] = [];
+
+        await Promise.all(
+          selectedConvIds.map(async (cId) => {
+            try {
+              const detail = await getConversationById(cId);
+              if (detail.success && detail.data.members) {
+                const other = detail.data.members.find((m) => m.userId !== myId) || detail.data.members[0];
+                if (other) memberIds.push(other.userId);
+              }
+            } catch (err) {
+              console.warn(`Failed to resolve userId for conv ${cId}:`, err);
+            }
+          })
+        );
+
         const res = await createGroup({
           groupName: groupName.trim(),
           groupDescription: '',
@@ -247,7 +240,7 @@ const CreateGroupScreen: React.FC<CreateGroupScreenProps> = ({ contacts, onBack,
 
             {/* API users from conversations */}
             {useApiUsers && !isLoadingUsers && filteredApiUsers.map(user => {
-                const idStr = String(user.userId);
+                const idStr = String(user.conversationId);
                 const isSelected = selectedContactIds.has(idStr);
                 return (
                     <div
