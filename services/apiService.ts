@@ -760,10 +760,11 @@ export async function uploadMedia(
   file: File | Blob,
   folder = 'chat'
 ): Promise<ApiResponse<MediaUploadData>> {
-  const url = `${API_BASE_URL}/media/upload?folder=${encodeURIComponent(folder)}`;
+  const url = `${API_BASE_URL}/media/upload`;
 
   console.log(`\n🔵 MEDIA UPLOAD`);
   console.log(`   URL:    POST ${url}`);
+  console.log(`   Folder: ${folder}`);
   console.log(`   File:   ${file instanceof File ? file.name : 'blob'} (${(file.size / 1024).toFixed(1)} KB)`);
 
   const start = performance.now();
@@ -776,6 +777,7 @@ export async function uploadMedia(
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const formData = new FormData();
+  formData.append('folder', folder);
   formData.append('file', file, file instanceof File ? file.name : 'upload');
 
   try {
@@ -786,16 +788,22 @@ export async function uploadMedia(
     });
 
     const duration = Math.round(performance.now() - start);
-    const data: ApiResponse<MediaUploadData> = await response.json();
+    const text = await response.text();
+    let data: ApiResponse<MediaUploadData> | null = null;
+    try { data = text ? JSON.parse(text) : null; } catch { /* empty/non-JSON body */ }
 
     if (response.ok) {
+      if (!data) throw new ApiError('Upload succeeded but response was empty', response.status);
       console.log(`🟢 MEDIA UPLOAD OK [${response.status}] (${duration}ms)`, data.data?.url);
-    } else {
-      console.log(`🔴 MEDIA UPLOAD ERROR [${response.status}] (${duration}ms)`, data);
-      throw new ApiError(data?.message || 'Upload failed', response.status, data?.errors);
+      return data;
     }
 
-    return data;
+    console.log(`🔴 MEDIA UPLOAD ERROR [${response.status}] (${duration}ms)`, data ?? text);
+    throw new ApiError(
+      data?.message || `Upload failed (HTTP ${response.status})`,
+      response.status,
+      data?.errors
+    );
   } catch (err: any) {
     if (err instanceof ApiError) throw err;
     const duration = Math.round(performance.now() - start);
@@ -818,4 +826,169 @@ export async function getPresignedUrl(
 /** Delete a media object from S3 by its key. */
 export async function deleteMedia(s3Key: string): Promise<ApiResponse<void>> {
   return apiRequest<void>(`/media?s3Key=${encodeURIComponent(s3Key)}`, 'DELETE');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REELS ENDPOINTS
+// ══════════════════════════════════════════════════════════════
+
+export interface ReelData {
+  id: string;
+  userId: number;
+  uploaderName: string;
+  uploaderAvatarUrl?: string;
+  videoUrl: string;
+  thumbnailUrl?: string;
+  duration?: number;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+  caption?: string;
+  hashtags?: string[];
+  viewCount: number;
+  likeCount: number;
+  commentCount: number;
+  shareCount: number;
+  isLiked: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReelCommentData {
+  id: string;
+  reelId: string;
+  userId: number;
+  userDisplayName: string;
+  userAvatarUrl?: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface CursorPaged<T> {
+  content: T[];
+  nextCursor: string | null;
+  previousCursor?: string | null;
+  hasMore: boolean;
+  limit: number;
+}
+
+export interface CreateReelPayload {
+  videoKey?: string;
+  videoUrl: string;
+  thumbnailKey?: string;
+  thumbnailUrl?: string;
+  caption?: string;
+  duration?: number;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+}
+
+function buildCursorQuery(params?: { cursor?: string; limit?: number }): string {
+  const parts: string[] = [];
+  if (params?.cursor) parts.push(`cursor=${encodeURIComponent(params.cursor)}`);
+  if (params?.limit) parts.push(`limit=${params.limit}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+
+/** GET /api/v1/reels — global reel feed (newest first, cursor-paginated). */
+export async function getReels(
+  params?: { cursor?: string; limit?: number }
+): Promise<ApiResponse<CursorPaged<ReelData>>> {
+  return apiRequest<CursorPaged<ReelData>>(`/reels${buildCursorQuery(params)}`, 'GET');
+}
+
+/** GET /api/v1/reels/{reelId} — get a single reel by ID. */
+export async function getReelById(reelId: string): Promise<ApiResponse<ReelData>> {
+  return apiRequest<ReelData>(`/reels/${encodeURIComponent(reelId)}`, 'GET');
+}
+
+/** GET /api/v1/reels/user/{targetUserId} — get reels posted by a specific user. */
+export async function getUserReels(
+  targetUserId: number,
+  params?: { cursor?: string; limit?: number }
+): Promise<ApiResponse<CursorPaged<ReelData>>> {
+  return apiRequest<CursorPaged<ReelData>>(
+    `/reels/user/${targetUserId}${buildCursorQuery(params)}`,
+    'GET'
+  );
+}
+
+/** GET /api/v1/reels/me — get the current user's own reels. */
+export async function getMyReels(
+  params?: { cursor?: string; limit?: number }
+): Promise<ApiResponse<CursorPaged<ReelData>>> {
+  return apiRequest<CursorPaged<ReelData>>(`/reels/me${buildCursorQuery(params)}`, 'GET');
+}
+
+/** POST /api/v1/reels — publish a reel (video must already be uploaded). */
+export async function createReel(payload: CreateReelPayload): Promise<ApiResponse<ReelData>> {
+  return apiRequest<ReelData>('/reels', 'POST', payload);
+}
+
+/** DELETE /api/v1/reels/{reelId} — soft-delete your own reel. */
+export async function deleteReel(reelId: string): Promise<ApiResponse<void>> {
+  return apiRequest<void>(`/reels/${encodeURIComponent(reelId)}`, 'DELETE');
+}
+
+/** POST /api/v1/reels/{reelId}/views — record a view (dedup per user per 24h). */
+export async function recordReelView(reelId: string): Promise<ApiResponse<boolean>> {
+  return apiRequest<boolean>(`/reels/${encodeURIComponent(reelId)}/views`, 'POST');
+}
+
+/** POST /api/v1/reels/{reelId}/like — like a reel (idempotent). */
+export async function likeReel(reelId: string): Promise<ApiResponse<ReelData>> {
+  return apiRequest<ReelData>(`/reels/${encodeURIComponent(reelId)}/like`, 'POST');
+}
+
+/** DELETE /api/v1/reels/{reelId}/like — unlike a reel. */
+export async function unlikeReel(reelId: string): Promise<ApiResponse<ReelData>> {
+  return apiRequest<ReelData>(`/reels/${encodeURIComponent(reelId)}/like`, 'DELETE');
+}
+
+/** POST /api/v1/reels/{reelId}/share/{conversationId} — share a reel into a chat. */
+export async function shareReelToConversation(
+  reelId: string,
+  conversationId: number
+): Promise<ApiResponse<void>> {
+  return apiRequest<void>(
+    `/reels/${encodeURIComponent(reelId)}/share/${conversationId}`,
+    'POST'
+  );
+}
+
+/** GET /api/v1/reels/{reelId}/comments — list comments for a reel. */
+export async function getReelComments(
+  reelId: string,
+  params?: { cursor?: string; limit?: number }
+): Promise<ApiResponse<CursorPaged<ReelCommentData>>> {
+  return apiRequest<CursorPaged<ReelCommentData>>(
+    `/reels/${encodeURIComponent(reelId)}/comments${buildCursorQuery(params)}`,
+    'GET'
+  );
+}
+
+/** POST /api/v1/reels/{reelId}/comments — post a comment on a reel. */
+export async function postReelComment(
+  reelId: string,
+  content: string
+): Promise<ApiResponse<ReelCommentData>> {
+  return apiRequest<ReelCommentData>(
+    `/reels/${encodeURIComponent(reelId)}/comments`,
+    'POST',
+    { content }
+  );
+}
+
+/** DELETE /api/v1/reels/{reelId}/comments/{commentId} — delete your own comment. */
+export async function deleteReelComment(
+  reelId: string,
+  commentId: string
+): Promise<ApiResponse<void>> {
+  return apiRequest<void>(
+    `/reels/${encodeURIComponent(reelId)}/comments/${encodeURIComponent(commentId)}`,
+    'DELETE'
+  );
 }

@@ -26,12 +26,77 @@ import { UserPlusIcon } from './icons/UserPlusIcon';
 import { UserMinusIcon } from './icons/UserMinusIcon';
 import type { VideoPost, GeographicScope, Comment } from '../types';
 import * as backend from '../services/backendService';
+import * as api from '../services/apiService';
+import { getUserId } from '../services/tokenService';
 
 interface ChannelsScreenProps {
   navProps: BottomNavBarProps;
 }
 
 const CATEGORIES = ['Trending', 'Moments', 'News', 'Events', 'Tech', 'Life'];
+
+const REEL_PAGE_SIZE = 10;
+const COMMENT_PAGE_SIZE = 20;
+
+const formatCount = (n?: number): string => {
+  if (!n || n <= 0) return '0';
+  if (n < 1_000) return String(n);
+  if (n < 1_000_000) return `${(n / 1_000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '')}K`;
+  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0).replace(/\.0$/, '')}M`;
+};
+
+const deriveCategoryFromHashtags = (tags?: string[]): string => {
+  if (!tags || tags.length === 0) return 'MOMENTS';
+  const upper = tags.map(t => t.toUpperCase().replace(/^#/, ''));
+  for (const cat of ['NEWS', 'EVENTS', 'TECH', 'LIFE', 'MOMENTS']) {
+    if (upper.includes(cat)) return cat;
+  }
+  return 'MOMENTS';
+};
+
+const mapReelToVideoPost = (reel: api.ReelData): VideoPost => {
+  const handle = `@user${reel.userId}`;
+  const tags = (reel.hashtags ?? []).map(t => t.replace(/^#/, ''));
+  const category = deriveCategoryFromHashtags(reel.hashtags);
+  const createdAtMs = reel.createdAt ? Date.parse(reel.createdAt) : Date.now();
+  return {
+    id: reel.id,
+    videoUrl: api.normalizeMediaUrl(reel.videoUrl),
+    author: reel.uploaderName || `User ${reel.userId}`,
+    authorHandle: handle,
+    authorAvatar: api.normalizeMediaUrl(reel.uploaderAvatarUrl),
+    description: reel.caption || '',
+    likes: formatCount(reel.likeCount),
+    comments: formatCount(reel.commentCount),
+    commentList: [],
+    category,
+    tags: tags.length > 0 ? tags : [category, 'Ozi'],
+    postedAt: Number.isFinite(createdAtMs) ? createdAtMs : Date.now(),
+    targeting: { scope: 'global' },
+    remoteId: reel.id,
+    authorUserId: reel.userId,
+    thumbnailUrl: api.normalizeMediaUrl(reel.thumbnailUrl),
+    isLiked: !!reel.isLiked,
+    likeCount: reel.likeCount,
+    commentCount: reel.commentCount,
+    shareCount: reel.shareCount,
+    viewCount: reel.viewCount,
+  };
+};
+
+const mapReelCommentToComment = (c: api.ReelCommentData): Comment => ({
+  id: c.id,
+  author: c.userDisplayName || `User ${c.userId}`,
+  authorHandle: `@user${c.userId}`,
+  authorAvatar: api.normalizeMediaUrl(c.userAvatarUrl),
+  text: c.content,
+  timestamp: c.createdAt ? Date.parse(c.createdAt) : Date.now(),
+});
+
+const extractHashtags = (text: string): string[] => {
+  const matches = text.match(/#([\p{L}0-9_]+)/gu) || [];
+  return Array.from(new Set(matches.map(t => t.slice(1))));
+};
 
 const SCOPES: { id: GeographicScope; label: string; icon: any }[] = [
     { id: 'city', label: 'City', icon: MapIcon },
@@ -55,7 +120,7 @@ const formatCommentTime = (ts: number) => {
 const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
   const [videos, setVideos] = useState<VideoPost[]>([]);
   const [subscribedHandles, setSubscribedHandles] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'for-you' | 'following'>('for-you');
+  const [activeTab, setActiveTab] = useState<'for-you' | 'following' | 'mine'>('for-you');
   const [activeCategory, setActiveCategory] = useState('Trending');
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
   const [showUpload, setShowUpload] = useState(false);
@@ -67,22 +132,45 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
   const [sharedVideoId, setSharedVideoId] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
 
+  // ── Reels API state ────────────────────────────────────────
+  const [feedCursor, setFeedCursor] = useState<string | null>(null);
+  const [feedHasMore, setFeedHasMore] = useState(true);
+  const [isLoadingFeed, setIsLoadingFeed] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [myReels, setMyReels] = useState<VideoPost[]>([]);
+  const [myReelsCursor, setMyReelsCursor] = useState<string | null>(null);
+  const [myReelsHasMore, setMyReelsHasMore] = useState(true);
+  const [isLoadingMyReels, setIsLoadingMyReels] = useState(false);
+  const viewedReelIds = useRef<Set<string>>(new Set());
+  const commentsCacheRef = useRef<Map<string, { cursor: string | null; hasMore: boolean }>>(new Map());
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [authorReels, setAuthorReels] = useState<VideoPost[]>([]);
+  const [authorReelsLoading, setAuthorReelsLoading] = useState(false);
+  const [shareSheetFor, setShareSheetFor] = useState<VideoPost | null>(null);
+  const [conversations, setConversations] = useState<api.ConversationData[]>([]);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
+  const [shareStatus, setShareStatus] = useState<{ conversationId: number; status: 'sending' | 'sent' | 'error' } | null>(null);
+  const currentUserId = getUserId();
+
   // --- Feed Filtering Logic ---
   const displayVideos = useMemo(() => {
-    let filtered = videos;
-    
-    // 1. Tab Filtering: Following only shows subscribed handles
+    const source: VideoPost[] = activeTab === 'mine' ? myReels : videos;
+    let filtered = source;
+
+    // Tab filtering (for non-mine tabs)
     if (activeTab === 'following') {
       filtered = filtered.filter(v => subscribedHandles.has(v.authorHandle));
     }
-    
-    // 2. Category Filtering: Exclude 'Trending' which acts as 'All'
-    if (activeCategory !== 'Trending') {
-      filtered = filtered.filter(v => v.category.toUpperCase() === activeCategory.toUpperCase());
+
+    // Category filtering (Trending = All). MINE tab ignores category filter
+    // so users always see their own reels regardless of their hashtags.
+    if (activeTab !== 'mine' && activeCategory !== 'Trending') {
+      filtered = filtered.filter(v => (v.category || '').toUpperCase() === activeCategory.toUpperCase());
     }
-    
+
+    console.log('[Reels] displayVideos compute', { tab: activeTab, cat: activeCategory, source: source.length, shown: filtered.length });
     return filtered;
-  }, [videos, activeTab, subscribedHandles, activeCategory]);
+  }, [videos, myReels, activeTab, subscribedHandles, activeCategory]);
 
   // Reset video index when feed changes
   useEffect(() => {
@@ -104,6 +192,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingIntervalRef = useRef<number | null>(null);
+  const uploadBlobRef = useRef<Blob | null>(null);
 
   const [isMuted, setIsMuted] = useState(() => {
     const saved = localStorage.getItem('ozichat_v_muted');
@@ -118,11 +207,106 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
     });
   }, []);
 
+  // Load subscribed handles (local-only concept, not part of the Reels API yet).
   useEffect(() => {
-      const posts = backend.getChannelPosts();
-      setVideos(posts);
       setSubscribedHandles(new Set(backend.getSubscribedHandles()));
   }, []);
+
+  const fetchFeed = useCallback(async (opts: { reset?: boolean } = {}) => {
+      const { reset = false } = opts;
+      if (isLoadingFeed) return;
+      if (!reset && !feedHasMore) return;
+      setIsLoadingFeed(true);
+      setFeedError(null);
+      try {
+          const res = await api.getReels({
+              cursor: reset ? undefined : feedCursor ?? undefined,
+              limit: REEL_PAGE_SIZE,
+          });
+          const page = res.data;
+          const rawCount = page?.content?.length ?? 0;
+          const mapped = (page?.content ?? []).map(mapReelToVideoPost);
+          console.log('[Reels] Feed fetched', { rawCount, mapped: mapped.length, hasMore: page?.hasMore, firstCategory: mapped[0]?.category });
+          setVideos(prev => {
+              const base = reset ? [] : prev;
+              const seen = new Set(base.map(v => v.id));
+              const merged = [...base];
+              for (const v of mapped) {
+                  if (!seen.has(v.id)) merged.push(v);
+              }
+              console.log('[Reels] videos state updated', { prevCount: base.length, afterCount: merged.length });
+              return merged;
+          });
+          // Seed liked state from server-provided isLiked flag.
+          setLikedVideos(prev => {
+              const next = new Set(prev);
+              for (const v of mapped) {
+                  if (v.isLiked && v.remoteId) next.add(v.remoteId);
+              }
+              return next;
+          });
+          setFeedCursor(page?.nextCursor ?? null);
+          setFeedHasMore(!!page?.hasMore);
+      } catch (err: any) {
+          console.error('[Reels] Feed load failed:', err);
+          setFeedError(err?.message || 'Failed to load reels');
+          if (reset) {
+              // Fallback to local cache only on first load, so offline users still see something.
+              const cached = backend.getChannelPosts();
+              setVideos(cached);
+              setFeedHasMore(false);
+          }
+      } finally {
+          setIsLoadingFeed(false);
+      }
+  }, [feedCursor, feedHasMore, isLoadingFeed]);
+
+  useEffect(() => {
+      fetchFeed({ reset: true });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchMyReels = useCallback(async (opts: { reset?: boolean } = {}) => {
+      const { reset = false } = opts;
+      if (isLoadingMyReels) return;
+      if (!reset && !myReelsHasMore) return;
+      setIsLoadingMyReels(true);
+      try {
+          const res = await api.getMyReels({
+              cursor: reset ? undefined : myReelsCursor ?? undefined,
+              limit: REEL_PAGE_SIZE,
+          });
+          const page = res.data;
+          const mapped = (page?.content ?? []).map(mapReelToVideoPost);
+          console.log('[Reels] My reels fetched', { count: mapped.length, hasMore: page?.hasMore });
+          setMyReels(prev => {
+              const base = reset ? [] : prev;
+              const seen = new Set(base.map(v => v.id));
+              const merged = [...base];
+              for (const v of mapped) if (!seen.has(v.id)) merged.push(v);
+              return merged;
+          });
+          setLikedVideos(prev => {
+              const next = new Set(prev);
+              for (const v of mapped) if (v.isLiked && v.remoteId) next.add(v.remoteId);
+              return next;
+          });
+          setMyReelsCursor(page?.nextCursor ?? null);
+          setMyReelsHasMore(!!page?.hasMore);
+      } catch (err) {
+          console.error('[Reels] Failed to load my reels', err);
+      } finally {
+          setIsLoadingMyReels(false);
+      }
+  }, [myReelsCursor, myReelsHasMore, isLoadingMyReels]);
+
+  // Lazy-load my reels the first time the user opens the MINE tab.
+  useEffect(() => {
+      if (activeTab === 'mine' && myReels.length === 0 && !isLoadingMyReels && myReelsHasMore) {
+          fetchMyReels({ reset: true });
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // FIX: Explicitly typed the updater's prev parameter and the new Set constructor to ensure correct type inference.
   // This prevents the Array.from(next) result from being typed as unknown[] on line 135 (or nearby depending on formatting).
@@ -151,6 +335,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
           recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
           recorder.onstop = () => {
               const blob = new Blob(chunks, { type: 'video/webm' });
+              uploadBlobRef.current = blob;
               const url = URL.createObjectURL(blob);
               setUploadVideoUrl(url);
               if (videoPreviewRef.current) {
@@ -186,92 +371,323 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file && file.type.startsWith('video/')) {
+          uploadBlobRef.current = file;
           setUploadVideoUrl(URL.createObjectURL(file));
       }
   };
 
   const handlePublish = async () => {
-      if (!uploadDesc.trim() || !uploadVideoUrl) return;
+      console.log('[Reels] handlePublish invoked', {
+          hasDesc: !!uploadDesc.trim(),
+          hasVideoUrl: !!uploadVideoUrl,
+          hasBlob: !!uploadBlobRef.current,
+          category: uploadCategory,
+      });
+
+      if (!uploadVideoUrl) {
+          alert('Please record or pick a video first.');
+          return;
+      }
+
       setIsPublishing(true);
       setPublishProgress(0);
 
-      const processingSteps = [20, 45, 70, 95, 100];
-      for (const progress of processingSteps) {
-          await new Promise(r => setTimeout(r, 600));
-          setPublishProgress(progress);
-      }
-
-      const name = localStorage.getItem('ozichat_display_name') || 'User';
-      const handle = localStorage.getItem('ozichat_channel_handle') || '@user';
-      const avatar = localStorage.getItem('ozichat_profile_picture') || '';
-
-      const newPost: VideoPost = {
-          id: `v-${Date.now()}`,
-          videoUrl: uploadVideoUrl, 
-          author: name,
-          authorHandle: handle,
-          authorAvatar: avatar,
-          description: uploadDesc,
-          likes: '0',
-          comments: '0',
-          commentList: [],
-          category: uploadCategory.toUpperCase(),
-          tags: [uploadCategory, 'OziHD'],
-          postedAt: Date.now(),
-          targeting: {
-              scope: uploadScope
+      try {
+          // Step 1 — resolve the Blob (either from recorded source or picked file).
+          let blob: Blob | null = uploadBlobRef.current;
+          if (!blob) {
+              console.log('[Reels] No cached blob, fetching from blob URL');
+              const r = await fetch(uploadVideoUrl);
+              blob = await r.blob();
           }
-      };
+          if (!blob || blob.size === 0) {
+              throw new Error('Video could not be read for upload');
+          }
+          console.log('[Reels] Blob resolved', { size: blob.size, type: blob.type });
 
-      backend.saveChannelPost(newPost);
-      setVideos(prev => [newPost, ...prev]);
-      
-      setTimeout(() => {
+          // Step 2 — upload via POST /api/v1/media/upload (multipart form, folder=chat).
+          setPublishProgress(20);
+          const extFromMime = (blob.type.split('/')[1] || 'mp4').split(';')[0];
+          const fileName = `reel-${Date.now()}.${extFromMime}`;
+          const fileForUpload = blob instanceof File
+              ? blob
+              : new File([blob], fileName, { type: blob.type || 'video/mp4' });
+          console.log('[Reels] Uploading media…', { fileName, size: fileForUpload.size });
+          const uploaded = await api.uploadMedia(fileForUpload, 'chat');
+          const media = {
+              s3Key: uploaded.data.s3Key,
+              url: api.normalizeMediaUrl(uploaded.data.url),
+              mimeType: uploaded.data.mimeType,
+              fileSize: uploaded.data.fileSize,
+              width: uploaded.data.width,
+              height: uploaded.data.height,
+          };
+          console.log('[Reels] Media uploaded', media);
+          setPublishProgress(65);
+
+          // Step 3 — compose the caption (append category tag). Caption is optional on backend.
+          const baseCaption = uploadDesc.trim();
+          const hashtagsInText = extractHashtags(baseCaption);
+          const catTag = uploadCategory.toLowerCase();
+          const tagSuffix = hashtagsInText.includes(catTag) ? '' : `#${catTag}`;
+          const caption = baseCaption
+              ? `${baseCaption}${tagSuffix ? ' ' + tagSuffix : ''}`
+              : tagSuffix;
+
+          // Step 4 — publish the reel.
+          const payload: api.CreateReelPayload = {
+              videoKey: media.s3Key,
+              videoUrl: media.url,
+              caption,
+              fileSize: media.fileSize,
+              mimeType: media.mimeType,
+              width: media.width,
+              height: media.height,
+          };
+          console.log('[Reels] Creating reel…', payload);
+          const created = await api.createReel(payload);
+          console.log('[Reels] Reel created', created.data);
+          setPublishProgress(100);
+
+          const newPost = mapReelToVideoPost(created.data);
+          setVideos(prev => [newPost, ...prev.filter(v => v.id !== newPost.id)]);
+          setMyReels(prev => [newPost, ...prev.filter(v => v.id !== newPost.id)]);
+
+          setTimeout(() => {
+              setIsPublishing(false);
+              setShowUpload(false);
+              setUploadDesc('');
+              setUploadVideoUrl(null);
+              uploadBlobRef.current = null;
+              setActiveVideoIndex(0);
+              setActiveCategory(uploadCategory);
+          }, 400);
+      } catch (err: any) {
+          console.error('[Reels] Publish failed', err);
           setIsPublishing(false);
-          setShowUpload(false);
-          setUploadDesc('');
-          setUploadVideoUrl(null);
-          setActiveVideoIndex(0);
-          setActiveCategory(uploadCategory);
-      }, 500);
+          const msg = err?.message || 'Could not publish your reel. Please try again.';
+          const detail = err?.errors ? `\n${JSON.stringify(err.errors)}` : '';
+          alert(`${msg}${detail}`);
+      }
   };
 
-  const handlePostComment = () => {
+  const loadCommentsForReel = useCallback(async (reel: VideoPost, reset = false) => {
+      if (!reel.remoteId) return;
+      const cacheKey = reel.remoteId;
+      const existing = commentsCacheRef.current.get(cacheKey);
+      if (!reset && existing && !existing.hasMore) return;
+      setCommentsLoading(true);
+      try {
+          const res = await api.getReelComments(reel.remoteId, {
+              cursor: reset ? undefined : existing?.cursor ?? undefined,
+              limit: COMMENT_PAGE_SIZE,
+          });
+          const page = res.data;
+          const mapped = (page?.content ?? []).map(mapReelCommentToComment);
+          commentsCacheRef.current.set(cacheKey, {
+              cursor: page?.nextCursor ?? null,
+              hasMore: !!page?.hasMore,
+          });
+          setShowComments(prev => {
+              if (!prev || prev.id !== reel.id) return prev;
+              const base = reset ? [] : (prev.commentList || []);
+              const seen = new Set(base.map(c => c.id));
+              const merged = [...base];
+              for (const c of mapped) if (!seen.has(c.id)) merged.push(c);
+              return { ...prev, commentList: merged };
+          });
+          setVideos(prev => prev.map(v => {
+              if (v.id !== reel.id) return v;
+              const base = reset ? [] : (v.commentList || []);
+              const seen = new Set(base.map(c => c.id));
+              const merged = [...base];
+              for (const c of mapped) if (!seen.has(c.id)) merged.push(c);
+              return { ...v, commentList: merged };
+          }));
+      } catch (err) {
+          console.error('[Reels] Failed to load comments', err);
+      } finally {
+          setCommentsLoading(false);
+      }
+  }, []);
+
+  useEffect(() => {
+      if (showComments && showComments.remoteId) {
+          commentsCacheRef.current.delete(showComments.remoteId);
+          loadCommentsForReel(showComments, true);
+
+          // Also refresh the reel's latest stats via GET /reels/{id}
+          api.getReelById(showComments.remoteId)
+              .then(res => {
+                  const refreshed = mapReelToVideoPost(res.data);
+                  const syncStats = (v: VideoPost): VideoPost => v.id === refreshed.id
+                      ? { ...v, likes: refreshed.likes, likeCount: refreshed.likeCount, isLiked: refreshed.isLiked, comments: refreshed.comments, commentCount: refreshed.commentCount, shareCount: refreshed.shareCount, viewCount: refreshed.viewCount }
+                      : v;
+                  setVideos(prev => prev.map(syncStats));
+                  setMyReels(prev => prev.map(syncStats));
+                  setShowComments(prev => (prev && prev.id === refreshed.id) ? { ...prev, ...syncStats(prev) } : prev);
+                  setLikedVideos(prev => {
+                      const next = new Set(prev);
+                      if (refreshed.isLiked && refreshed.remoteId) next.add(refreshed.remoteId);
+                      else if (refreshed.remoteId) next.delete(refreshed.remoteId);
+                      return next;
+                  });
+              })
+              .catch(err => console.warn('[Reels] getReelById refresh failed', err));
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showComments?.id]);
+
+  const handlePostComment = async () => {
       if (!newComment.trim() || !showComments) return;
-      
-      const author = localStorage.getItem('ozichat_display_name') || 'User';
-      const handle = localStorage.getItem('ozichat_channel_handle') || '@user';
-      const avatar = localStorage.getItem('ozichat_profile_picture') || '';
-
-      const comment: Comment = {
-          id: `c-${Date.now()}`,
-          author,
-          authorHandle: handle,
-          authorAvatar: avatar,
-          text: newComment,
-          timestamp: Date.now()
-      };
-
-      backend.saveCommentToPost(showComments.id, comment);
-      
-      setVideos(prev => prev.map(v => {
-          if (v.id === showComments.id) {
-              const newList = [comment, ...(v.commentList || [])];
-              return { ...v, commentList: newList, comments: newList.length.toString() };
-          }
-          return v;
-      }));
-      
-      setShowComments(prev => {
-          if (!prev) return null;
-          const newList = [comment, ...(prev.commentList || [])];
-          return { ...prev, commentList: newList, comments: newList.length.toString() };
-      });
-      
+      const text = newComment.trim();
       setNewComment('');
+
+      // Local-only posts (legacy cache) — keep old behavior.
+      if (!showComments.remoteId) {
+          const author = localStorage.getItem('ozichat_display_name') || 'User';
+          const handle = localStorage.getItem('ozichat_channel_handle') || '@user';
+          const avatar = localStorage.getItem('ozichat_profile_picture') || '';
+          const localComment: Comment = {
+              id: `c-${Date.now()}`,
+              author, authorHandle: handle, authorAvatar: avatar,
+              text, timestamp: Date.now(),
+          };
+          backend.saveCommentToPost(showComments.id, localComment);
+          setVideos(prev => prev.map(v => v.id === showComments.id
+              ? { ...v, commentList: [localComment, ...(v.commentList || [])], comments: String(((v.commentList || []).length + 1)) }
+              : v));
+          setShowComments(prev => prev ? { ...prev, commentList: [localComment, ...(prev.commentList || [])], comments: String(((prev.commentList || []).length + 1)) } : null);
+          return;
+      }
+
+      try {
+          const res = await api.postReelComment(showComments.remoteId, text);
+          const comment = mapReelCommentToComment(res.data);
+          const bumpCount = (v: VideoPost): VideoPost => {
+              const nextCount = (v.commentCount ?? (parseInt(v.comments) || 0)) + 1;
+              return {
+                  ...v,
+                  commentList: [comment, ...(v.commentList || [])],
+                  comments: formatCount(nextCount),
+                  commentCount: nextCount,
+              };
+          };
+          setVideos(prev => prev.map(v => v.id === showComments.id ? bumpCount(v) : v));
+          setShowComments(prev => prev ? bumpCount(prev) : null);
+      } catch (err: any) {
+          console.error('[Reels] Post comment failed', err);
+          alert(err?.message || 'Could not post your comment');
+          setNewComment(text);
+      }
+  };
+
+  const handleDeleteComment = async (comment: Comment) => {
+      if (!showComments?.remoteId) return;
+      try {
+          await api.deleteReelComment(showComments.remoteId, comment.id);
+          const dropCount = (v: VideoPost): VideoPost => {
+              const nextCount = Math.max(0, (v.commentCount ?? (parseInt(v.comments) || 0)) - 1);
+              return {
+                  ...v,
+                  commentList: (v.commentList || []).filter(c => c.id !== comment.id),
+                  comments: formatCount(nextCount),
+                  commentCount: nextCount,
+              };
+          };
+          setVideos(prev => prev.map(v => v.id === showComments.id ? dropCount(v) : v));
+          setShowComments(prev => prev ? dropCount(prev) : null);
+      } catch (err: any) {
+          console.error('[Reels] Delete comment failed', err);
+          alert(err?.message || 'Could not delete the comment');
+      }
+  };
+
+  const handleToggleLike = async (reel: VideoPost) => {
+      if (!reel.remoteId) {
+          // Local-only video — keep legacy toggle.
+          setLikedVideos(prev => {
+              const next = new Set(prev);
+              if (next.has(reel.id)) next.delete(reel.id); else next.add(reel.id);
+              return next;
+          });
+          return;
+      }
+      const wasLiked = likedVideos.has(reel.remoteId);
+      // Optimistic toggle
+      setLikedVideos(prev => {
+          const next = new Set(prev);
+          if (wasLiked) next.delete(reel.remoteId!); else next.add(reel.remoteId!);
+          return next;
+      });
+      setVideos(prev => prev.map(v => {
+          if (v.id !== reel.id) return v;
+          const nextCount = Math.max(0, (v.likeCount ?? 0) + (wasLiked ? -1 : 1));
+          return { ...v, isLiked: !wasLiked, likeCount: nextCount, likes: formatCount(nextCount) };
+      }));
+      try {
+          const res = wasLiked
+              ? await api.unlikeReel(reel.remoteId)
+              : await api.likeReel(reel.remoteId);
+          const updated = mapReelToVideoPost(res.data);
+          setVideos(prev => prev.map(v => v.id === reel.id
+              ? { ...v, likes: updated.likes, likeCount: updated.likeCount, isLiked: updated.isLiked }
+              : v));
+          setLikedVideos(prev => {
+              const next = new Set(prev);
+              if (updated.isLiked) next.add(reel.remoteId!); else next.delete(reel.remoteId!);
+              return next;
+          });
+      } catch (err: any) {
+          console.error('[Reels] Like toggle failed', err);
+          // Revert optimistic change
+          setLikedVideos(prev => {
+              const next = new Set(prev);
+              if (wasLiked) next.add(reel.remoteId!); else next.delete(reel.remoteId!);
+              return next;
+          });
+          setVideos(prev => prev.map(v => {
+              if (v.id !== reel.id) return v;
+              const nextCount = Math.max(0, (v.likeCount ?? 0) + (wasLiked ? 1 : -1));
+              return { ...v, isLiked: wasLiked, likeCount: nextCount, likes: formatCount(nextCount) };
+          }));
+      }
+  };
+
+  const handleDeleteReel = async (reel: VideoPost) => {
+      if (!reel.remoteId) return;
+      if (!confirm('Delete this reel? This cannot be undone.')) return;
+      try {
+          await api.deleteReel(reel.remoteId);
+          setVideos(prev => prev.filter(v => v.id !== reel.id));
+          setMyReels(prev => prev.filter(v => v.id !== reel.id));
+          if (viewingAuthor?.id === reel.id) setViewingAuthor(null);
+          if (showComments?.id === reel.id) setShowComments(null);
+      } catch (err: any) {
+          console.error('[Reels] Delete reel failed', err);
+          alert(err?.message || 'Could not delete the reel');
+      }
   };
 
   const handleShare = async (video: VideoPost) => {
+    // API-backed reels: open the in-app chat share sheet.
+    if (video.remoteId) {
+        setShareSheetFor(video);
+        if (conversations.length === 0 && !conversationsLoading) {
+            setConversationsLoading(true);
+            try {
+                const res = await api.getConversations();
+                setConversations(res.data || []);
+            } catch (err) {
+                console.error('[Reels] Load conversations failed', err);
+            } finally {
+                setConversationsLoading(false);
+            }
+        }
+        return;
+    }
+
+    // Legacy local-only videos: keep the copy-link / navigator.share behavior.
     const shareLink = `https://ozi.chat/v/${video.id}`;
     if (navigator.share) {
         try { await navigator.share({ title: 'Ozi Video', url: shareLink }); } catch (err) {}
@@ -282,14 +698,111 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
     }
   };
 
-  const VideoCard: React.FC<{ video: VideoPost, isActive: boolean, globalMuted: boolean, onToggleMute: () => void, onAuthorClick: (v: VideoPost) => void }> = ({ video, isActive, globalMuted, onToggleMute, onAuthorClick }) => {
+  const handleShareToConversation = async (conversationId: number) => {
+      const reel = shareSheetFor;
+      if (!reel?.remoteId) return;
+      setShareStatus({ conversationId, status: 'sending' });
+      try {
+          await api.shareReelToConversation(reel.remoteId, conversationId);
+          setShareStatus({ conversationId, status: 'sent' });
+          setVideos(prev => prev.map(v => v.id === reel.id
+              ? { ...v, shareCount: (v.shareCount ?? 0) + 1 }
+              : v));
+          setTimeout(() => {
+              setShareSheetFor(null);
+              setShareStatus(null);
+          }, 900);
+      } catch (err: any) {
+          console.error('[Reels] Share failed', err);
+          setShareStatus({ conversationId, status: 'error' });
+      }
+  };
+
+  // Record a view the first time a reel becomes active.
+  useEffect(() => {
+      const reel = videos[activeVideoIndex];
+      if (!reel?.remoteId) return;
+      if (viewedReelIds.current.has(reel.remoteId)) return;
+      viewedReelIds.current.add(reel.remoteId);
+      api.recordReelView(reel.remoteId).catch(err => {
+          console.warn('[Reels] recordReelView failed', err);
+          // Permit retry on transient failures.
+          viewedReelIds.current.delete(reel.remoteId!);
+      });
+  }, [activeVideoIndex, videos]);
+
+  // Load author's reels when the author modal opens.
+  useEffect(() => {
+      if (!viewingAuthor?.authorUserId) { setAuthorReels([]); return; }
+      let cancelled = false;
+      setAuthorReelsLoading(true);
+      setAuthorReels([]);
+      api.getUserReels(viewingAuthor.authorUserId, { limit: 12 })
+          .then(res => {
+              if (cancelled) return;
+              setAuthorReels((res.data?.content ?? []).map(mapReelToVideoPost));
+          })
+          .catch(err => console.error('[Reels] Load author reels failed', err))
+          .finally(() => { if (!cancelled) setAuthorReelsLoading(false); });
+      return () => { cancelled = true; };
+  }, [viewingAuthor?.authorUserId]);
+
+  const VideoCard: React.FC<{ video: VideoPost, isActive: boolean, shouldLoad: boolean, globalMuted: boolean, onToggleMute: () => void, onAuthorClick: (v: VideoPost) => void }> = ({ video, isActive, shouldLoad, globalMuted, onToggleMute, onAuthorClick }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [progress, setProgress] = useState(0);
     const [showHeart, setShowHeart] = useState(false);
     const [isPlaying, setIsPlaying] = useState(true);
     const [hasError, setHasError] = useState(false);
     const [statusIconType, setStatusIconType] = useState<'play' | 'pause' | 'volume' | 'mute' | null>(null);
+    const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
+    const [isLoadingSrc, setIsLoadingSrc] = useState(false);
     const lastTap = useRef<number>(0);
+
+    // Lazy-load the video: only fetch the blob when the card is at/near the
+    // active index (the parent passes `shouldLoad`). When the card moves out of
+    // range, we revoke the ObjectURL and free memory.
+    useEffect(() => {
+        const src = video.videoUrl;
+        if (!src || !shouldLoad) {
+            // Card is out of preload window — drop the resolved URL.
+            setResolvedSrc(prev => {
+                if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+                return null;
+            });
+            return;
+        }
+        // Non-ngrok URLs (e.g., mixkit dummy data) can be used directly.
+        const needsProxy = /ngrok-free\.dev|ngrok\.io|ngrok\.app/.test(src);
+        if (!needsProxy) {
+            setResolvedSrc(src);
+            return;
+        }
+        let cancelled = false;
+        let objectUrl: string | null = null;
+        setIsLoadingSrc(true);
+        setHasError(false);
+        fetch(src, { headers: { 'ngrok-skip-browser-warning': 'true' } })
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.blob();
+            })
+            .then(blob => {
+                if (cancelled) return;
+                objectUrl = URL.createObjectURL(blob);
+                setResolvedSrc(objectUrl);
+                setIsLoadingSrc(false);
+            })
+            .catch(err => {
+                if (cancelled) return;
+                console.warn('[Reels] blob fetch failed', { src, err });
+                setIsLoadingSrc(false);
+                setHasError(true);
+            });
+        return () => {
+            cancelled = true;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [video.videoUrl, shouldLoad]);
 
     useEffect(() => {
         if (isActive && !hasError) {
@@ -319,7 +832,11 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
         if (hasError) return;
         const now = Date.now();
         if (now - lastTap.current < 300) {
-            setLikedVideos(prev => new Set(prev).add(video.id));
+            // Double-tap to like (only fire if not already liked).
+            const key = video.remoteId || video.id;
+            if (!likedVideos.has(key)) {
+                handleToggleLike(video);
+            }
             setShowHeart(true);
             setTimeout(() => setShowHeart(false), 800);
         } else {
@@ -367,14 +884,28 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                   <VideoCameraIcon className="w-16 h-16 opacity-30" />
                   <p className="text-[10px] font-black tracking-widest uppercase opacity-40">Media Temporarily Unavailable</p>
                 </div>
+            ) : !resolvedSrc ? (
+                <div className="w-full h-full flex items-center justify-center bg-slate-950">
+                    {(isActive || isLoadingSrc) && (
+                        <div className="w-10 h-10 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                    )}
+                </div>
             ) : (
-                <video 
+                <video
                     ref={videoRef}
-                    src={video.videoUrl} 
+                    src={resolvedSrc}
                     loop playsInline muted={globalMuted}
                     onTimeUpdate={handleTimeUpdate}
-                    onError={() => setHasError(true)}
-                    className="w-full h-full object-cover" 
+                    onError={(e) => {
+                        const v = e.currentTarget;
+                        console.warn('[Reels] video <video> error', {
+                            src: resolvedSrc,
+                            errorCode: v.error?.code,
+                            errorMsg: v.error?.message,
+                        });
+                        setHasError(true);
+                    }}
+                    className="w-full h-full object-cover"
                 />
             )}
             
@@ -425,9 +956,9 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                     </div>
 
                     <div className="flex flex-col items-center gap-6 mb-4">
-                        <button onClick={(e) => { e.stopPropagation(); likedVideos.has(video.id) ? setLikedVideos(prev => { const n = new Set(prev); n.delete(video.id); return n; }) : setLikedVideos(prev => new Set(prev).add(video.id)); }} className="flex flex-col items-center gap-1 group">
-                            <div className={`p-3.5 rounded-2xl backdrop-blur-xl transition-all duration-300 ${likedVideos.has(video.id) ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-white/10 text-white border border-white/10 group-hover:bg-white/20'}`}>
-                                <HeartIcon className={`w-6 h-6 ${likedVideos.has(video.id) ? 'fill-current' : ''}`} />
+                        <button onClick={(e) => { e.stopPropagation(); handleToggleLike(video); }} className="flex flex-col items-center gap-1 group">
+                            <div className={`p-3.5 rounded-2xl backdrop-blur-xl transition-all duration-300 ${likedVideos.has(video.remoteId || video.id) ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-white/10 text-white border border-white/10 group-hover:bg-white/20'}`}>
+                                <HeartIcon className={`w-6 h-6 ${likedVideos.has(video.remoteId || video.id) ? 'fill-current' : ''}`} />
                             </div>
                             <span className="text-[10px] font-black text-white/80">{video.likes}</span>
                         </button>
@@ -441,13 +972,21 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                             <div className={`p-3.5 rounded-2xl backdrop-blur-xl transition-all duration-300 ${sharedVideoId === video.id ? 'bg-green-500 text-white' : 'bg-white/10 text-white border border-white/10 group-hover:bg-white/20'}`}>
                                 {sharedVideoId === video.id ? <CheckIcon className="w-6 h-6" /> : <ShareIcon className="w-6 h-6" />}
                             </div>
-                            <span className="text-[10px] font-black text-white/80">{sharedVideoId === video.id ? 'Copied' : 'Share'}</span>
+                            <span className="text-[10px] font-black text-white/80">{sharedVideoId === video.id ? 'Copied' : (video.shareCount ? formatCount(video.shareCount) : 'Share')}</span>
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); setShowAIInsight(video.id); }} className="flex flex-col items-center gap-1 group">
                             <div className="p-3.5 bg-gradient-to-br from-indigo-500 to-violet-700 rounded-2xl shadow-xl hover:scale-110 transition-all border border-white/10">
                                 <SparklesIcon className="w-6 h-6 text-white" />
                             </div>
                         </button>
+                        {currentUserId && video.authorUserId === currentUserId && video.remoteId && (
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteReel(video); }} className="flex flex-col items-center gap-1 group">
+                                <div className="p-3.5 bg-white/10 border border-white/10 rounded-2xl backdrop-blur-xl text-red-400 group-hover:bg-red-500/20 transition-all">
+                                    <TrashIcon className="w-6 h-6" />
+                                </div>
+                                <span className="text-[10px] font-black text-white/60">Delete</span>
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -494,8 +1033,8 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
 
                       <div className="grid grid-cols-2 gap-4 w-full py-6 border-y border-white/5 my-2">
                           <div className="text-center">
-                              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Subscribers</p>
-                              <p className="text-lg font-bold text-white tracking-tight">4.2M</p>
+                              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Reels</p>
+                              <p className="text-lg font-bold text-white tracking-tight">{authorReelsLoading ? '…' : authorReels.length}</p>
                           </div>
                           <div className="text-center">
                               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Network Rank</p>
@@ -504,7 +1043,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                       </div>
 
                       <div className="w-full space-y-3">
-                          <button 
+                          <button
                             className={`w-full py-5 rounded-3xl font-black text-xs uppercase tracking-[0.3em] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-3 border-2 ${isSubscribed ? 'bg-transparent border-indigo-500/40 text-indigo-400' : 'bg-indigo-600 border-indigo-600 text-white shadow-indigo-600/20'}`}
                             onClick={() => handleSubscribeToggle(author.authorHandle)}
                           >
@@ -512,6 +1051,35 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                               {isSubscribed ? 'Unsubscribe' : 'Subscribe'}
                           </button>
                       </div>
+
+                      {author.authorUserId && (
+                          <div className="w-full mt-4">
+                              <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-3">Recent Reels</p>
+                              {authorReelsLoading ? (
+                                  <div className="flex justify-center py-6">
+                                      <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                                  </div>
+                              ) : authorReels.length === 0 ? (
+                                  <p className="text-center text-[9px] text-slate-600 font-black uppercase tracking-[0.3em] py-4">No reels yet</p>
+                              ) : (
+                                  <div className="grid grid-cols-3 gap-2">
+                                      {authorReels.slice(0, 9).map(r => (
+                                          <div key={r.id} className="aspect-[9/16] rounded-xl overflow-hidden bg-black border border-white/5 relative">
+                                              {r.thumbnailUrl ? (
+                                                  <img src={r.thumbnailUrl} className="w-full h-full object-cover" alt="" />
+                                              ) : (
+                                                  <video src={r.videoUrl} muted playsInline className="w-full h-full object-cover" />
+                                              )}
+                                              <div className="absolute bottom-1 left-1 right-1 flex items-center gap-1">
+                                                  <HeartIcon className="w-3 h-3 text-white/80 fill-current" />
+                                                  <span className="text-[9px] font-black text-white/80">{r.likes}</span>
+                                              </div>
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                          </div>
+                      )}
 
                       <p className="text-[9px] text-slate-600 font-black uppercase tracking-[0.4em] mt-2">
                           Ozi Protocol Encrypted Identity
@@ -553,17 +1121,21 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
               </div>
           </div>
 
-          <div className="flex justify-center gap-10 mb-4">
-              {['FOR YOU', 'FOLLOWING'].map(tab => (
-                  <button 
-                    key={tab}
-                    onClick={() => setActiveTab(tab.toLowerCase() as any)}
+          <div className="flex justify-center gap-8 mb-4">
+              {([
+                  { label: 'FOR YOU', value: 'for-you' as const },
+                  { label: 'FOLLOWING', value: 'following' as const },
+                  { label: 'MINE', value: 'mine' as const },
+              ]).map(tab => (
+                  <button
+                    key={tab.value}
+                    onClick={() => { setActiveTab(tab.value); setActiveVideoIndex(0); }}
                     className="relative px-2 py-1 group"
                   >
-                      <span className={`text-[10px] font-black tracking-[0.2em] transition-all ${activeTab === tab.toLowerCase() ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
-                          {tab}
+                      <span className={`text-[10px] font-black tracking-[0.2em] transition-all ${activeTab === tab.value ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+                          {tab.label}
                       </span>
-                      {activeTab === tab.toLowerCase() && (
+                      {activeTab === tab.value && (
                           <div className="absolute -bottom-1 left-0 right-0 h-[2px] bg-indigo-500 shadow-[0_0_12px_#6366f1] rounded-full" />
                       )}
                   </button>
@@ -585,28 +1157,74 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
 
       {/* Main Video Feed */}
       <div className="flex-1 overflow-y-auto snap-y snap-mandatory h-full scrollbar-hide" onScroll={(e) => {
-        const index = Math.round(e.currentTarget.scrollTop / e.currentTarget.clientHeight);
+        const el = e.currentTarget;
+        const index = Math.round(el.scrollTop / el.clientHeight);
         if (index !== activeVideoIndex) setActiveVideoIndex(index);
+        // Infinite scroll: when within 2 reels of the end, fetch the next page.
+        const nearEnd = index >= displayVideos.length - 2;
+        if (!nearEnd) return;
+        if (activeTab === 'mine' && myReelsHasMore && !isLoadingMyReels) {
+            fetchMyReels();
+        } else if (activeTab === 'for-you' && activeCategory === 'Trending' && feedHasMore && !isLoadingFeed) {
+            fetchFeed();
+        }
       }}>
-        {displayVideos.length > 0 ? displayVideos.map((v, i) => (
-            <VideoCard 
-                key={v.id} 
-                video={v} 
-                isActive={i === activeVideoIndex} 
-                globalMuted={isMuted} 
-                onToggleMute={toggleMute} 
-                onAuthorClick={(auth) => setViewingAuthor(auth)}
-            />
-        )) : (
+        {displayVideos.length > 0 ? (
+            <>
+              {displayVideos.map((v, i) => (
+                  <VideoCard
+                      key={v.id}
+                      video={v}
+                      isActive={i === activeVideoIndex}
+                      shouldLoad={i === activeVideoIndex || i === activeVideoIndex + 1}
+                      globalMuted={isMuted}
+                      onToggleMute={toggleMute}
+                      onAuthorClick={(auth) => setViewingAuthor(auth)}
+                  />
+              ))}
+              {(isLoadingFeed || isLoadingMyReels) && (
+                  <div className="h-full snap-start flex items-center justify-center text-slate-500">
+                      <div className="w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                  </div>
+              )}
+            </>
+        ) : (isLoadingFeed || isLoadingMyReels) ? (
+            <div className="h-full flex items-center justify-center bg-[#050505]">
+                <div className="w-10 h-10 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+            </div>
+        ) : (
             <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-6 bg-[#050505] p-10 text-center animate-fade-in">
-                {activeTab === 'following' ? (
+                {feedError && activeTab !== 'mine' ? (
+                    <>
+                      <SparklesIcon className="w-16 h-16 opacity-10" />
+                      <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-60 text-red-400">{feedError}</p>
+                      <button
+                        onClick={() => fetchFeed({ reset: true })}
+                        className="px-8 py-4 bg-indigo-600 rounded-2xl font-black text-xs uppercase tracking-widest text-white shadow-xl shadow-indigo-600/20 active:scale-95 transition-all"
+                      >Retry</button>
+                    </>
+                ) : activeTab === 'mine' ? (
+                  <>
+                    <div className="p-8 bg-indigo-500/5 rounded-full border border-indigo-500/10"><VideoCameraIcon className="w-16 h-16 opacity-20 text-indigo-400" /></div>
+                    <div className="space-y-2">
+                      <p className="text-xl font-black text-white/80 uppercase tracking-tighter">You haven't posted yet</p>
+                      <p className="text-sm text-slate-500 leading-relaxed font-medium">Tap the <span className="text-indigo-400 font-bold">+</span> button to publish your first reel.</p>
+                    </div>
+                    <button
+                      onClick={() => setShowUpload(true)}
+                      className="px-8 py-4 bg-indigo-600 rounded-2xl font-black text-xs uppercase tracking-widest text-white shadow-xl shadow-indigo-600/20 active:scale-95 transition-all"
+                    >
+                      Deploy Transmission
+                    </button>
+                  </>
+                ) : activeTab === 'following' ? (
                   <>
                     <div className="p-8 bg-indigo-500/5 rounded-full border border-indigo-500/10"><UserPlusIcon className="w-16 h-16 opacity-20 text-indigo-400" /></div>
                     <div className="space-y-2">
                       <p className="text-xl font-black text-white/80 uppercase tracking-tighter">Your following feed is quiet</p>
                       <p className="text-sm text-slate-500 leading-relaxed font-medium">Subscribe to channels in the <span className="text-indigo-400 font-bold">For You</span> tab to see their latest transmissions here.</p>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setActiveTab('for-you')}
                       className="px-8 py-4 bg-indigo-600 rounded-2xl font-black text-xs uppercase tracking-widest text-white shadow-xl shadow-indigo-600/20 active:scale-95 transition-all"
                     >
@@ -677,18 +1295,36 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-8 space-y-8 pb-8 custom-scrollbar">
-                      {showComments.commentList?.map(comment => (
+                      {commentsLoading && (!showComments.commentList || showComments.commentList.length === 0) && (
+                          <div className="flex justify-center py-8">
+                              <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                          </div>
+                      )}
+                      {showComments.commentList?.map(comment => {
+                          const isOwnComment = !!currentUserId && comment.authorHandle === `@user${currentUserId}`;
+                          return (
                           <div key={comment.id} className="flex gap-4 items-start animate-fade-in">
                               <img src={comment.authorAvatar || `https://ui-avatars.com/api/?name=${comment.author}&background=random`} className="w-11 h-11 rounded-2xl flex-shrink-0 border border-white/5" alt="" />
                               <div className="flex-1">
                                   <div className="flex items-center justify-between mb-1">
                                       <span className="font-black text-sm text-indigo-400">@{comment.authorHandle.replace('@','')}</span>
-                                      <span className="text-[10px] text-slate-600 font-bold uppercase">{formatCommentTime(comment.timestamp)}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-slate-600 font-bold uppercase">{formatCommentTime(comment.timestamp)}</span>
+                                        {isOwnComment && showComments.remoteId && (
+                                            <button onClick={() => handleDeleteComment(comment)} className="p-1 text-slate-600 hover:text-red-400 transition-colors">
+                                                <TrashIcon className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                      </div>
                                   </div>
                                   <p className="text-sm text-slate-300 leading-relaxed bg-slate-800/50 p-4 rounded-3xl rounded-tl-none border border-white/5">{comment.text}</p>
                               </div>
                           </div>
-                      ))}
+                          );
+                      })}
+                      {!commentsLoading && (!showComments.commentList || showComments.commentList.length === 0) && (
+                          <p className="text-center text-[10px] text-slate-600 font-black uppercase tracking-[0.3em] py-8">No community notes yet</p>
+                      )}
                   </div>
 
                   <div className="p-6 bg-slate-900/50 border-t border-white/5 pb-12">
@@ -708,17 +1344,73 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
           </div>
       )}
 
+      {/* Share-to-Chat Sheet */}
+      {shareSheetFor && (
+          <div className="fixed inset-0 z-[115] bg-slate-950/60 backdrop-blur-md flex items-end animate-fade-in" onClick={() => { setShareSheetFor(null); setShareStatus(null); }}>
+              <div className="bg-[#111827] w-full rounded-t-[3rem] max-h-[72vh] flex flex-col shadow-2xl animate-fade-in-up border-t border-white/5" onClick={e => e.stopPropagation()}>
+                  <div className="p-6 flex flex-col items-center">
+                      <div className="w-12 h-1.5 bg-slate-800 rounded-full mb-6"></div>
+                      <div className="flex items-center justify-between w-full px-2 mb-4 text-[#F1F5F9]">
+                          <h3 className="font-black text-2xl tracking-tighter uppercase text-indigo-400">Share to Chat</h3>
+                          <button onClick={() => { setShareSheetFor(null); setShareStatus(null); }} className="p-3 bg-white/5 rounded-full text-white/50"><CloseIcon className="w-6 h-6" /></button>
+                      </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-6 space-y-3 pb-8 custom-scrollbar">
+                      {conversationsLoading && (
+                          <div className="flex justify-center py-10">
+                              <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                          </div>
+                      )}
+                      {!conversationsLoading && conversations.length === 0 && (
+                          <p className="text-center text-[10px] text-slate-600 font-black uppercase tracking-[0.3em] py-10">No conversations yet</p>
+                      )}
+                      {conversations.map(c => {
+                          const status = shareStatus?.conversationId === c.conversationId ? shareStatus.status : null;
+                          return (
+                              <button
+                                  key={c.conversationId}
+                                  onClick={() => handleShareToConversation(c.conversationId)}
+                                  disabled={status === 'sending' || status === 'sent'}
+                                  className="w-full flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/30 transition-all active:scale-[0.99] disabled:opacity-60"
+                              >
+                                  <img
+                                      src={api.normalizeMediaUrl(c.avatarUrl) || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.displayName)}&background=6366F1&color=fff`}
+                                      className="w-12 h-12 rounded-2xl border border-white/10 flex-shrink-0 object-cover"
+                                      alt=""
+                                  />
+                                  <div className="flex-1 text-left min-w-0">
+                                      <p className="font-black text-sm text-white truncate">{c.displayName}</p>
+                                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{c.type}</p>
+                                  </div>
+                                  {status === 'sending' && <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />}
+                                  {status === 'sent' && <CheckIcon className="w-5 h-5 text-green-400" />}
+                                  {status === 'error' && <span className="text-[9px] font-black text-red-400 uppercase tracking-widest">Failed</span>}
+                                  {!status && <PaperAirplaneIcon className="w-5 h-5 text-indigo-400" />}
+                              </button>
+                          );
+                      })}
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Upload View */}
       {showUpload && (
           <div className="fixed inset-0 z-[100] upload-hud-glass flex flex-col animate-fade-in text-[#F1F5F9] overflow-y-auto custom-scrollbar">
               <header className="p-6 pt-10 flex items-center justify-between border-b border-white/5 sticky top-0 bg-slate-900/90 backdrop-blur-2xl z-30">
                   <button onClick={() => { setShowUpload(false); handleStopRecording(); setUploadVideoUrl(null); }} className="p-2 hover:bg-white/5 rounded-full transition-colors"><CloseIcon className="w-6 h-6 text-slate-400" /></button>
                   <h2 className="font-black text-xl tracking-[0.1em] uppercase text-[#F1F5F9]">Deploy Transmission</h2>
-                  <button 
+                  <button
                     onClick={handlePublish} disabled={isPublishing || !uploadVideoUrl}
                     className="bg-indigo-600 px-8 py-2.5 rounded-full font-black text-[11px] shadow-2xl shadow-indigo-500/20 flex items-center gap-2 active:scale-95 disabled:opacity-20 transition-all"
                   >
-                      {isPublishing ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'POST NOW'}
+                      {isPublishing ? (
+                          <>
+                              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                              <span>POSTING {publishProgress}%</span>
+                          </>
+                      ) : 'POST NOW'}
                   </button>
               </header>
               
