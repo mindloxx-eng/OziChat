@@ -283,6 +283,15 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
 
           setApiConversations(directContacts);
           setApiGroups(groupChats);
+
+          // Subscribe to EVERY conversation room (DIRECT + GROUP) on page load.
+          // Safe to call even if WS isn't connected yet — queued and activated on connect.
+          conversations.forEach((conv) => {
+            if (conv.conversationId) {
+              wsService.subscribeToConversation(conv.conversationId);
+            }
+          });
+          console.log(`📡 Queued/activated subscriptions for ${conversations.length} conversation rooms`);
         })
         .catch((err) => {
           console.warn('Failed to fetch conversations:', err);

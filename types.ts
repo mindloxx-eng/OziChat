@@ -126,6 +126,15 @@ export interface VideoPost {
     scope: GeographicScope;
     value?: string;
   };
+  // Backend-backed reel metadata (optional; present when sourced from /api/v1/reels)
+  remoteId?: string;
+  authorUserId?: number;
+  thumbnailUrl?: string;
+  isLiked?: boolean;
+  likeCount?: number;
+  commentCount?: number;
+  shareCount?: number;
+  viewCount?: number;
 }
 
 export interface Advertisement {

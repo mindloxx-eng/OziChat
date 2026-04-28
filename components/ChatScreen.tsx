@@ -268,7 +268,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
     return () => {
       unsubMsg();
       unsubNotif();
-      wsService.unsubscribeFromConversation(conversationId);
+      // NOTE: Do NOT unsubscribe from conversation room on ChatScreen unmount —
+      // UserApp subscribes globally to all conversations so that notifications
+      // and unread counts continue working when the chat is closed.
       if (typingSendTimerRef.current) clearTimeout(typingSendTimerRef.current);
       if (otherTypingClearRef.current) clearTimeout(otherTypingClearRef.current);
       createdBlobUrls.current.forEach(url => URL.revokeObjectURL(url));
