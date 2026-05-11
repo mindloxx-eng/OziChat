@@ -12,6 +12,7 @@ import { App as CapApp } from '@capacitor/app';
 import { getConversations, getOrCreateDirectConversation, getGroup, getGroupMembers, updateGroup, addGroupMembers, removeGroupMember, changeGroupMemberRole, createGroupInviteLink, revokeGroupInviteLink, joinGroupByToken, getGroupPinnedMessages, pinGroupMessage, unpinGroupMessage, setGroupAnnouncement, getUserById, searchUsers, normalizeMediaUrl, logout as apiLogout, getMyProfile } from './services/apiService';
 import { isAuthenticated, getUserId, clearAuthTokens } from './services/tokenService';
 import { wsService } from './services/websocketService';
+import { callService, type CallState } from './services/callService';
 
 // Lazy load non-critical screens
 const ChatScreen = lazy(() => import('./components/ChatScreen'));
@@ -48,6 +49,7 @@ const AllContactsListScreen = lazy(() => import('./components/AllContactsListScr
 const AdPaymentScreen = lazy(() => import('./components/AdPaymentScreen'));
 const AdCheckoutScreen = lazy(() => import('./components/AdCheckoutScreen'));
 const CallingScreen = lazy(() => import('./components/CallingScreen'));
+const IncomingCallScreen = lazy(() => import('./components/IncomingCallScreen'));
 const StarredMessagesScreen = lazy(() => import('./components/StarredMessagesScreen'));
 const EphemeralScreen = lazy(() => import('./components/EphemeralScreen'));
 const AIAssistantScreen = lazy(() => import('./components/AIAssistantScreen'));
@@ -55,7 +57,7 @@ const VoiceAssistantScreen = lazy(() => import('./components/VoiceAssistantScree
 const ChannelsScreen = lazy(() => import('./components/ChannelsScreen'));
 const StatusVaultScreen = lazy(() => import('./components/StatusVaultScreen'));
 
-export type AppState = 'splash' | 'ozi-intro' | 'onboarding' | 'login' | 'otp' | 'verification' | 'contacts' | 'chat' | 'profile' | 'contact-details' | 'group-details' | 'join-group' | 'add-contact' | 'edit-contact' | 'map' | 'calls' | 'media' | 'settings' | 'settings-account' | 'settings-privacy' | 'settings-security' | 'settings-blocked-contacts' | 'settings-appearance' | 'settings-notifications' | 'settings-data' | 'settings-storage-manage' | 'settings-help' | 'settings-two-step' | 'settings-delete-account' | 'help-center' | 'contact-us' | 'terms-privacy' | 'app-info' | 'create-group' | 'marketplace' | 'post-ad' | 'ad-details' | 'all-contacts' | 'ad-payment' | 'ad-checkout' | 'calling' | 'starred-messages' | 'ephemeral' | 'ai-assistant' | 'voice-assistant' | 'channels' | 'status-vault';
+export type AppState = 'splash' | 'ozi-intro' | 'onboarding' | 'login' | 'otp' | 'verification' | 'contacts' | 'chat' | 'profile' | 'contact-details' | 'group-details' | 'join-group' | 'add-contact' | 'edit-contact' | 'map' | 'calls' | 'media' | 'settings' | 'settings-account' | 'settings-privacy' | 'settings-security' | 'settings-blocked-contacts' | 'settings-appearance' | 'settings-notifications' | 'settings-data' | 'settings-storage-manage' | 'settings-help' | 'settings-two-step' | 'settings-delete-account' | 'help-center' | 'contact-us' | 'terms-privacy' | 'app-info' | 'create-group' | 'marketplace' | 'post-ad' | 'ad-details' | 'all-contacts' | 'call-pick-contact' | 'ad-payment' | 'ad-checkout' | 'calling' | 'starred-messages' | 'ephemeral' | 'ai-assistant' | 'voice-assistant' | 'channels' | 'status-vault';
 
 interface UserAppProps {
   contacts: Contact[];
@@ -111,6 +113,7 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [apiConversations, setApiConversations] = useState<Contact[]>([]);
   const [apiGroups, setApiGroups] = useState<Group[]>([]);
+  const [callState, setCallState] = useState<CallState>(callService.getState());
 
 
   useEffect(() => {
@@ -126,6 +129,35 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
     window.addEventListener('ozichat:auth-expired', handleAuthExpired);
     return () => window.removeEventListener('ozichat:auth-expired', handleAuthExpired);
   }, []);
+
+  // Initialize call signaling on mount; subscribe to state changes
+  useEffect(() => {
+    callService.init();
+    const unsub = callService.subscribe((s) => setCallState(s));
+    return () => unsub();
+  }, []);
+
+  // Surface incoming/outgoing/connected calls as the 'calling' screen
+  useEffect(() => {
+    if (callState.phase === 'idle') return;
+    if (callState.phase === 'incoming-ringing') return; // dedicated overlay below
+    if (callState.phase === 'ended') return;
+    // For outgoing-ringing / connecting / connected, route to the calling screen.
+    if (appState !== 'calling') {
+      const remoteContact: Contact = {
+        id: String(callState.remoteUserId ?? 'remote'),
+        name: callState.remoteUserName || 'Unknown',
+        avatarUrl: callState.remoteUserAvatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(callState.remoteUserName || 'User')}&background=random&color=fff`,
+        lastMessage: '',
+        timestamp: '',
+        unreadCount: 0,
+        status: '',
+        phone: '',
+      };
+      setCallInfo({ participants: [remoteContact], type: callState.type === 'VIDEO' ? 'video' : 'audio' });
+      setAppState('calling');
+    }
+  }, [callState.phase, callState.callId]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -637,11 +669,32 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
     const validParticipants = participants.filter(c => !c.isBlocked);
     if (validParticipants.length === 0) return;
 
+    const callee = validParticipants[0];
+    const calleeId = Number(callee.id);
+    if (!Number.isFinite(calleeId)) {
+      alert('This contact is not connected to your account on the server yet.');
+      return;
+    }
+
     setCallInfo({ participants: validParticipants, type });
     setAppState('calling');
+
+    callService.startCall({
+      calleeId,
+      calleeName: callee.name,
+      calleeAvatarUrl: callee.avatarUrl,
+      type: type === 'video' ? 'VIDEO' : 'AUDIO',
+    });
   };
   
   const handleEndCall = () => {
+      // Ensure underlying RTC + signaling is torn down even if user pressed back.
+      const phase = callService.getState().phase;
+      if (phase === 'outgoing-ringing' || phase === 'connecting') {
+        callService.cancelOutgoing();
+      } else if (phase === 'connected' || phase === 'incoming-ringing') {
+        callService.endCall();
+      }
       setCallInfo(null);
       setAppState('contacts');
   };
@@ -743,7 +796,7 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
                         if (contact) handleSelectChat(contact);
                     }}
                     navProps={{...navProps, activeScreen: 'calls'}}
-                    onStartNewCall={() => setAppState('all-contacts')}
+                    onStartNewCall={() => setAppState('call-pick-contact')}
                 />;
       case 'channels':
         return <ChannelsScreen 
@@ -845,12 +898,19 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
       case 'ad-checkout':
         if (!adInProgress || !selectedPlan) return <MarketplaceScreen advertisements={advertisements} onBack={handleBackToContacts} onNavigateToAdDetails={handleNavigateToAdDetails} onNavigateToPostAd={handleNavigateToPostAd} />;
         return <AdCheckoutScreen adData={adInProgress} plan={selectedPlan} settings={settings} onBack={() => setAppState('ad-payment')} onPaymentSuccess={handlePostAdSuccess} />;
-      case 'all-contacts': 
-        return <AllContactsListScreen 
-                  contacts={contacts} 
+      case 'all-contacts':
+        return <AllContactsListScreen
+                  contacts={contacts}
                   onSelectContact={handleSelectChat}
                   onEditContact={handleEditContact}
                   navProps={{...navProps, activeScreen: 'all-contacts'}}
+                />;
+      case 'call-pick-contact':
+        return <AllContactsListScreen
+                  contacts={apiConversations}
+                  onSelectContact={(c) => handleInitiateCall(c, 'audio')}
+                  onEditContact={handleEditContact}
+                  navProps={{...navProps, activeScreen: 'calls'}}
                 />;
       case 'calling':
         if (!callInfo) return <ContactsScreen chatList={chatList} onSelectChat={handleSelectChat} onNavigateToProfile={handleNavigateToProfile} onNavigateToAddContact={handleNavigateToAddContact} onNavigateToCreateGroup={handleNavigateToCreateGroup} onNavigateToJoinGroup={() => setAppState('join-group')} onNavigateToSettings={handleNavigateToSettings} onNavigateToMarketplace={handleNavigateToMarketplace} onNavigateToAllContacts={handleNavigateToAllContacts} onNavigateToAI={handleNavigateToAIChat} navProps={{...navProps, activeScreen: 'chats'}} />;
@@ -868,6 +928,29 @@ const UserApp: React.FC<UserAppProps> = ({ contacts, settings, onUpdateContacts,
     <Suspense fallback={<LoadingSpinner />}>
       <div className="h-full w-full bg-white dark:bg-[#0B0E14] transition-colors duration-300 relative">
         {renderContent()}
+        {callState.phase === 'incoming-ringing' && (
+          <IncomingCallScreen
+            callerName={callState.remoteUserName}
+            callerAvatarUrl={callState.remoteUserAvatarUrl}
+            callType={callState.type}
+            onAccept={() => {
+              const remoteContact: Contact = {
+                id: String(callState.remoteUserId ?? 'remote'),
+                name: callState.remoteUserName || 'Unknown',
+                avatarUrl: callState.remoteUserAvatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(callState.remoteUserName || 'User')}&background=random&color=fff`,
+                lastMessage: '',
+                timestamp: '',
+                unreadCount: 0,
+                status: '',
+                phone: '',
+              };
+              setCallInfo({ participants: [remoteContact], type: callState.type === 'VIDEO' ? 'video' : 'audio' });
+              setAppState('calling');
+              callService.acceptIncoming();
+            }}
+            onReject={() => callService.rejectIncoming()}
+          />
+        )}
       </div>
     </Suspense>
   );

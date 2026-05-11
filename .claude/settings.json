@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la .env*)",
+      "Bash(find . -maxdepth 3 -name \".env*\" -not -path \"*/node_modules/*\")"
+    ]
+  }
+}
