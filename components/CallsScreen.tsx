@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import type { GlobalCall, Contact } from '../types';
+import type { GlobalCall, Contact, CallType } from '../types';
 import { UserIcon } from './icons/UserIcon';
 import { PhoneIcon } from './icons/PhoneIcon';
 import { ArrowDownLeftIcon } from './icons/ArrowDownLeftIcon';
@@ -8,6 +8,8 @@ import { ArrowUpRightIcon } from './icons/ArrowUpRightIcon';
 import BottomNavBar, { BottomNavBarProps } from './BottomNavBar';
 import { PhoneMissedIcon } from './icons/PhoneMissedIcon';
 import { VideoIcon } from './icons/VideoIcon';
+import { getCallHistory, getMissedCalls, type CallRecord } from '../services/apiService';
+import { isAuthenticated, getUserId } from '../services/tokenService';
 
 interface CallsScreenProps {
   calls: GlobalCall[];
@@ -46,9 +48,48 @@ const formatDuration = (seconds?: number) => {
     return `${mins}m ${secs}s`;
 };
 
+const mapRecordToType = (record: CallRecord, currentUserId: number | null): CallType => {
+  const state = (record.state || '').toUpperCase();
+  if (state === 'MISSED') return 'missed';
+  if (currentUserId != null && record.callerId === currentUserId) return 'outgoing';
+  return 'incoming';
+};
+
+const recordToGlobalCall = (
+  record: CallRecord,
+  contacts: Contact[],
+  currentUserId: number | null
+): GlobalCall => {
+  const type = mapRecordToType(record, currentUserId);
+  const isOutgoing = type === 'outgoing';
+  const remoteId = isOutgoing ? record.calleeId : record.callerId;
+  const remoteName = isOutgoing ? record.calleeName : record.callerName;
+  const matchedContact = contacts.find(
+    (c) => c.id === String(remoteId) || c.name === remoteName
+  );
+  const initiatedAt = record.initiatedAt;
+  const date = initiatedAt ? new Date(initiatedAt) : new Date();
+
+  return {
+    id: record.id,
+    type,
+    timestamp: date.toLocaleString(),
+    duration: record.durationSeconds,
+    contactId: matchedContact?.id || String(remoteId),
+    contactName: matchedContact?.name || remoteName || 'Unknown',
+    contactAvatarUrl:
+      matchedContact?.avatarUrl ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(remoteName || 'User')}&background=random&color=fff`,
+    date,
+  };
+};
+
 const CallsScreen: React.FC<CallsScreenProps> = ({ calls, contacts, onNavigateToProfile, onSelectContactById, onInitiateCall, navProps, onStartNewCall }) => {
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'missed'>('all');
+  const [historyCalls, setHistoryCalls] = useState<GlobalCall[]>([]);
+  const [missedCalls, setMissedCalls] = useState<GlobalCall[]>([]);
+  const [isLoadingCalls, setIsLoadingCalls] = useState(false);
 
   useEffect(() => {
     const loadProfileData = () => {
@@ -59,12 +100,68 @@ const CallsScreen: React.FC<CallsScreenProps> = ({ calls, contacts, onNavigateTo
     return () => window.removeEventListener('storage', loadProfileData);
   }, []);
 
+  // Fetch call history + missed calls from backend
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+    let cancelled = false;
+    const currentUserId = getUserId();
+
+    const load = async () => {
+      setIsLoadingCalls(true);
+      try {
+        const [historyRes, missedRes] = await Promise.all([
+          getCallHistory(0, 50).catch((err) => {
+            console.warn('getCallHistory failed:', err?.message || err);
+            return null;
+          }),
+          getMissedCalls(0, 50).catch((err) => {
+            console.warn('getMissedCalls failed:', err?.message || err);
+            return null;
+          }),
+        ]);
+        if (cancelled) return;
+
+        if (historyRes?.success && Array.isArray(historyRes.data)) {
+          setHistoryCalls(
+            historyRes.data.map((r) => recordToGlobalCall(r, contacts, currentUserId))
+          );
+        }
+        if (missedRes?.success && Array.isArray(missedRes.data)) {
+          setMissedCalls(
+            missedRes.data.map((r) => recordToGlobalCall({ ...r, state: 'MISSED' }, contacts, currentUserId))
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoadingCalls(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [contacts]);
+
+  // Backend-only call list, dedup by id, sort newest-first
+  const mergedCalls = useMemo<GlobalCall[]>(() => {
+    const byId = new Map<string, GlobalCall>();
+    [...historyCalls, ...missedCalls].forEach((call) => {
+      if (!call?.id) return;
+      if (!byId.has(call.id)) byId.set(call.id, call);
+    });
+    return Array.from(byId.values()).sort((a, b) => {
+      const ad = a.date?.getTime() ?? 0;
+      const bd = b.date?.getTime() ?? 0;
+      return bd - ad;
+    });
+  }, [historyCalls, missedCalls]);
+
   const filteredCalls = useMemo(() => {
     if (filter === 'missed') {
-      return calls.filter(call => call.type === 'missed');
+      return mergedCalls.filter(call => call.type === 'missed');
     }
-    return calls;
-  }, [calls, filter]);
+    return mergedCalls;
+  }, [mergedCalls, filter]);
   
   const groupedCalls = useMemo(() => {
     return filteredCalls.reduce((acc, call) => {
@@ -203,7 +300,7 @@ const CallsScreen: React.FC<CallsScreenProps> = ({ calls, contacts, onNavigateTo
                 <div className="w-20 h-20 bg-gray-100 dark:bg-[#2a2a46] rounded-full flex items-center justify-center">
                     <PhoneMissedIcon className="w-10 h-10 text-gray-300 dark:text-gray-500" />
                 </div>
-                <p>No {filter} calls yet.</p>
+                <p>{isLoadingCalls ? 'Loading calls…' : `No ${filter} calls yet.`}</p>
             </div>
         )}
       </main>

@@ -1,4 +1,4 @@
-package com.ozichat.app;
+package com.ozichat.android;
 
 import com.getcapacitor.BridgeActivity;
 

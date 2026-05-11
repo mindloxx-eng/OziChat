@@ -1,7 +1,7 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.ozichat.app',
+  appId: 'com.ozichat.android',
   appName: 'Ozichat',
   webDir: 'dist',
   server: {

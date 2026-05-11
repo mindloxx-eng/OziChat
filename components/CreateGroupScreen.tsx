@@ -66,8 +66,9 @@ const CreateGroupScreen: React.FC<CreateGroupScreenProps> = ({ contacts, onBack,
     });
   };
 
-  // Use API users if available, fallback to local contacts
-  const useApiUsers = isAuthenticated() && apiUsers.length > 0;
+  // Authenticated users always see server data (empty state if no conversations).
+  // Local dummy contacts are only shown when the user is not logged in.
+  const useApiUsers = isAuthenticated();
 
   const filteredApiUsers = apiUsers.filter((u: DirectContact) =>
     u.displayName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -283,8 +284,18 @@ const CreateGroupScreen: React.FC<CreateGroupScreenProps> = ({ contacts, onBack,
                 );
             })}
 
-            {!isLoadingUsers && useApiUsers && filteredApiUsers.length === 0 && searchQuery && (
-              <p className="text-center text-gray-500 py-6 text-sm">No users found</p>
+            {!isLoadingUsers && useApiUsers && filteredApiUsers.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <UserGroupIcon className="w-12 h-12 text-gray-600 mb-3" />
+                <p className="text-gray-400 text-sm font-medium">
+                  {searchQuery ? 'No users found' : 'No contacts to add yet'}
+                </p>
+                {!searchQuery && (
+                  <p className="text-gray-500 text-xs mt-1">
+                    Start a chat with someone first to add them to a group.
+                  </p>
+                )}
+              </div>
             )}
         </div>
       </main>

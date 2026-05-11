@@ -2,8 +2,8 @@ ext {
     minSdkVersion = 24
     compileSdkVersion = 36
     targetSdkVersion = 36
-    // Force Java 17 compatibility
-    javaVersion = JavaVersion.VERSION_17
+    // Capacitor 8.x requires Java 21
+    javaVersion = JavaVersion.VERSION_21
     androidxActivityVersion = '1.11.0'
     androidxAppCompatVersion = '1.7.1'
     androidxCoordinatorLayoutVersion = '1.3.0'

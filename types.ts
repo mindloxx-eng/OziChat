@@ -53,6 +53,7 @@ export interface Contact {
   unreadCount: number;
   status: string;
   phone: string;
+  email?: string;
   channelHandle?: string; // Unique Ozi Channel Handle
   isFavorite?: boolean;
   isBlocked?: boolean;

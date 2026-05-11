@@ -41,6 +41,38 @@ type MessageHandler = (message: MessageData) => void;
 type NotificationHandler = (notification: WsNotification) => void;
 type ConnectionHandler = (connected: boolean) => void;
 
+// ── Call signaling types ─────────────────────────────────────
+
+export type CallEventType =
+  | 'incoming_call'
+  | 'call_initiated'
+  | 'call_accepted'
+  | 'call_rejected'
+  | 'call_cancelled'
+  | 'call_ended'
+  | 'call_missed'
+  | 'offer'
+  | 'answer'
+  | 'ice_candidate';
+
+export interface CallSignalEnvelope {
+  event: CallEventType;
+  callId: string;
+  fromUserId?: number;
+  fromUserName?: string;
+  fromUserAvatarUrl?: string;
+  callType?: 'AUDIO' | 'VIDEO';
+  sdp?: string;
+  sdpType?: 'offer' | 'answer';
+  candidate?: string | null;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  reason?: string;
+  timestamp?: string;
+}
+
+type CallEventHandler = (envelope: CallSignalEnvelope) => void;
+
 // ── Singleton WebSocket Manager ──────────────────────────────
 
 // Feature flag — controls whether WebSocket is used for real-time messaging.
@@ -59,6 +91,7 @@ class WebSocketService {
   private messageHandlers: MessageHandler[] = [];
   private notificationHandlers: NotificationHandler[] = [];
   private connectionHandlers: ConnectionHandler[] = [];
+  private callEventHandlers: CallEventHandler[] = [];
   // Active STOMP subscription objects (only valid when connected)
   private conversationSubscriptions = new Map<number, { unsubscribe: () => void }>();
   // Desired conversation IDs — survives disconnects, used to (re)subscribe on connect
@@ -145,6 +178,16 @@ class WebSocketService {
             this.notificationHandlers.forEach((h) => h(notification));
           } catch (e) {
             console.error('Failed to parse WS notification:', e);
+          }
+        });
+
+        this.client!.subscribe('/user/queue/call', (frame: IMessage) => {
+          try {
+            const envelope: CallSignalEnvelope = JSON.parse(frame.body);
+            console.log('📞 WS Call:', envelope.event, envelope);
+            this.callEventHandlers.forEach((h) => h(envelope));
+          } catch (e) {
+            console.error('Failed to parse WS call envelope:', e);
           }
         });
 
@@ -302,6 +345,53 @@ class WebSocketService {
     });
   }
 
+  // ── Call signaling publishes ─────────────────────────────
+
+  private publishCall(destination: string, body: Record<string, unknown>): void {
+    if (!this.client?.active) {
+      console.error(`🔴 Cannot publish ${destination} — WebSocket not connected`);
+      return;
+    }
+    this.client.publish({ destination, body: JSON.stringify(body) });
+  }
+
+  callInitiate(calleeId: number, type: 'AUDIO' | 'VIDEO'): void {
+    this.publishCall('/app/call/initiate', { calleeId, type });
+  }
+
+  callAccept(callId: string): void {
+    this.publishCall('/app/call/accept', { callId });
+  }
+
+  callReject(callId: string): void {
+    this.publishCall('/app/call/reject', { callId });
+  }
+
+  callCancel(callId: string): void {
+    this.publishCall('/app/call/cancel', { callId });
+  }
+
+  callEnd(callId: string): void {
+    this.publishCall('/app/call/end', { callId });
+  }
+
+  callOffer(callId: string, sdp: string): void {
+    this.publishCall('/app/call/offer', { callId, sdp, sdpType: 'offer' });
+  }
+
+  callAnswer(callId: string, sdp: string): void {
+    this.publishCall('/app/call/answer', { callId, sdp, sdpType: 'answer' });
+  }
+
+  callIceCandidate(
+    callId: string,
+    candidate: string | null,
+    sdpMid: string | null,
+    sdpMLineIndex: number | null
+  ): void {
+    this.publishCall('/app/call/ice-candidate', { callId, candidate, sdpMid, sdpMLineIndex });
+  }
+
   // ── Event Handlers ───────────────────────────────────────
 
   /** Register a handler for incoming messages. Returns unsubscribe fn. */
@@ -325,6 +415,14 @@ class WebSocketService {
     this.connectionHandlers.push(handler);
     return () => {
       this.connectionHandlers = this.connectionHandlers.filter((h) => h !== handler);
+    };
+  }
+
+  /** Register a handler for call signaling events from /user/queue/call. */
+  onCallEvent(handler: CallEventHandler): () => void {
+    this.callEventHandlers.push(handler);
+    return () => {
+      this.callEventHandlers = this.callEventHandlers.filter((h) => h !== handler);
     };
   }
 

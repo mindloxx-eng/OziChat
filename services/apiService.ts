@@ -11,7 +11,7 @@ import {
 } from './tokenService';
 
 // ── Configuration ────────────────────────────────────────────
-const NGROK_BASE = 'https://unfeeling-appeasingly-natacha.ngrok-free.dev';
+const NGROK_BASE = 'http://16.16.206.14:8080';
 const API_BASE_URL = process.env.API_BASE_URL || `${NGROK_BASE}/api/v1`;
 
 export const WS_URL = `${NGROK_BASE}/ws/chat`;
@@ -571,6 +571,11 @@ export async function getOrCreateDirectConversation(targetUserId: number): Promi
   return apiRequest<ConversationDetail>(`/conversations/direct?targetUserId=${targetUserId}`, 'GET');
 }
 
+/** Get or create a 1-to-1 conversation by target user's email. */
+export async function getOrCreateDirectConversationByEmail(email: string): Promise<ApiResponse<ConversationDetail>> {
+  return apiRequest<ConversationDetail>(`/conversations/direct/by-email?email=${encodeURIComponent(email)}`, 'GET');
+}
+
 /** Get a specific conversation by ID. */
 export async function getConversationById(conversationId: number): Promise<ApiResponse<ConversationDetail>> {
   return apiRequest<ConversationDetail>(`/conversations/${conversationId}`, 'GET');
@@ -760,7 +765,7 @@ export async function uploadMedia(
   file: File | Blob,
   folder = 'chat'
 ): Promise<ApiResponse<MediaUploadData>> {
-  const url = `${API_BASE_URL}/media/upload`;
+  const url = `${API_BASE_URL}/media/upload?folder=${encodeURIComponent(folder)}`;
 
   console.log(`\n🔵 MEDIA UPLOAD`);
   console.log(`   URL:    POST ${url}`);
@@ -770,14 +775,13 @@ export async function uploadMedia(
   const start = performance.now();
 
   const headers: Record<string, string> = {
-    'Accept': 'application/json',
+    'Accept': '*/*',
     'ngrok-skip-browser-warning': 'true',
   };
   const token = getAccessToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const formData = new FormData();
-  formData.append('folder', folder);
   formData.append('file', file, file instanceof File ? file.name : 'upload');
 
   try {
@@ -991,4 +995,66 @@ export async function deleteReelComment(
     `/reels/${encodeURIComponent(reelId)}/comments/${encodeURIComponent(commentId)}`,
     'DELETE'
   );
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CALL ENDPOINTS
+// ══════════════════════════════════════════════════════════════
+
+export type CallApiType = 'AUDIO' | 'VIDEO' | string;
+export type CallApiState =
+  | 'INITIATED'
+  | 'RINGING'
+  | 'ANSWERED'
+  | 'ENDED'
+  | 'MISSED'
+  | 'REJECTED'
+  | string;
+
+export interface CallRecord {
+  id: string;
+  callerId: number;
+  callerName: string;
+  calleeId: number;
+  calleeName: string;
+  type: CallApiType;
+  state: CallApiState;
+  initiatedAt: string;
+  answeredAt?: string | null;
+  endedAt?: string | null;
+  durationSeconds?: number;
+  endedBy?: string | null;
+  endReason?: string | null;
+}
+
+export interface IceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+/** GET /api/v1/calls/status — current active call state for the authenticated user. */
+export async function getCallStatus(): Promise<ApiResponse<Record<string, any>>> {
+  return apiRequest<Record<string, any>>('/calls/status', 'GET');
+}
+
+/** GET /api/v1/calls/missed — paginated list of missed calls. */
+export async function getMissedCalls(
+  page = 0,
+  size = 20
+): Promise<ApiResponse<CallRecord[]>> {
+  return apiRequest<CallRecord[]>(`/calls/missed?page=${page}&size=${size}`, 'GET');
+}
+
+/** GET /api/v1/calls/ice-servers — STUN/TURN configuration for WebRTC. */
+export async function getIceServers(): Promise<ApiResponse<IceServer[]>> {
+  return apiRequest<IceServer[]>('/calls/ice-servers', 'GET');
+}
+
+/** GET /api/v1/calls/history — paginated call history (caller or callee). */
+export async function getCallHistory(
+  page = 0,
+  size = 20
+): Promise<ApiResponse<CallRecord[]>> {
+  return apiRequest<CallRecord[]>(`/calls/history?page=${page}&size=${size}`, 'GET');
 }

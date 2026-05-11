@@ -5,7 +5,7 @@ import { ChevronLeftIcon } from './icons/ChevronLeftIcon';
 import { UserIcon } from './icons/UserIcon';
 import { CameraIcon } from './icons/CameraIcon';
 import { TrashIcon } from './icons/TrashIcon';
-import { uploadMedia } from '../services/apiService';
+import { uploadMedia, getOrCreateDirectConversationByEmail } from '../services/apiService';
 import { isAuthenticated } from '../services/tokenService';
 
 interface AddContactScreenProps {
@@ -17,25 +17,43 @@ interface AddContactScreenProps {
 const AddContactScreen: React.FC<AddContactScreenProps> = ({ onBack, onSave, initialContact }) => {
   const [name, setName] = useState(initialContact?.name || '');
   const [phone, setPhone] = useState(initialContact?.phone || '');
+  const [email, setEmail] = useState(initialContact?.email || '');
   const [avatarSrc, setAvatarSrc] = useState<string | null>(initialContact?.avatarUrl || null);
+  const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (initialContact) {
       setName(initialContact.name);
       setPhone(initialContact.phone);
+      setEmail(initialContact.email || '');
       setAvatarSrc(initialContact.avatarUrl);
     }
   }, [initialContact]);
 
-  const isSaveDisabled = !name.trim() || !phone.trim();
+  const isSaveDisabled = !name.trim() || !phone.trim() || isSaving;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (isSaveDisabled) return;
     const contactName = name.trim();
+    const contactEmail = email.trim();
+
+    if (contactEmail && isAuthenticated()) {
+      setIsSaving(true);
+      try {
+        const res = await getOrCreateDirectConversationByEmail(contactEmail);
+        console.log('🟢 Direct conversation by email:', res.data);
+      } catch (err: any) {
+        console.warn('Direct conversation by email failed:', err?.message || err);
+      } finally {
+        setIsSaving(false);
+      }
+    }
+
     onSave({
       name: contactName,
       phone: phone.trim(),
+      email: contactEmail || undefined,
       avatarUrl: avatarSrc || `https://ui-avatars.com/api/?name=${encodeURIComponent(contactName)}&background=random&color=fff`,
     });
   };
@@ -114,12 +132,12 @@ const AddContactScreen: React.FC<AddContactScreenProps> = ({ onBack, onSave, ini
       <header className="shrink-0 flex items-center justify-between p-4 bg-[#1C1C2E] shadow-md z-10">
         <button onClick={onBack} className="text-white p-2 rounded-full hover:bg-white/10"><ChevronLeftIcon /></button>
         <h2 className="text-xl font-bold text-white">{initialContact ? 'Edit Contact' : 'New Contact'}</h2>
-        <button 
-          onClick={handleSave} 
+        <button
+          onClick={handleSave}
           disabled={isSaveDisabled}
           className={`font-semibold transition-colors ${isSaveDisabled ? 'text-gray-500' : 'text-[#3F9BFF] hover:text-blue-400'}`}
         >
-          Save
+          {isSaving ? 'Saving...' : 'Save'}
         </button>
       </header>
 
@@ -174,7 +192,7 @@ const AddContactScreen: React.FC<AddContactScreenProps> = ({ onBack, onSave, ini
             />
           </div>
 
-          <div>
+          <div className="mb-6">
             <label htmlFor="contactPhone" className="block text-sm font-medium text-gray-400 mb-2">Phone</label>
             <input
               type="tel"
@@ -183,6 +201,19 @@ const AddContactScreen: React.FC<AddContactScreenProps> = ({ onBack, onSave, ini
               onChange={(e) => setPhone(e.target.value)}
               className="w-full bg-[#2a2a46] border border-gray-600 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-[#553699]"
               placeholder="Enter phone number"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-400 mb-2">Email</label>
+            <input
+              type="email"
+              id="contactEmail"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-[#2a2a46] border border-gray-600 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-[#553699]"
+              placeholder="Enter email"
+              autoComplete="email"
             />
           </div>
         </div>
