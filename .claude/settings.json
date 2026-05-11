@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(ls -la .env*)",
-      "Bash(find . -maxdepth 3 -name \".env*\" -not -path \"*/node_modules/*\")"
+      "Bash(find . -maxdepth 3 -name \".env*\" -not -path \"*/node_modules/*\")",
+      "Bash(mkdir -p \"/Users/mac/Downloads/ozichat app/admin-web/components\" \"/Users/mac/Downloads/ozichat app/admin-web/pages\" \"/Users/mac/Downloads/ozichat app/admin-web/hooks\" \"/Users/mac/Downloads/ozichat app/admin-web/icons\" && echo \"ok\")",
+      "Bash(mkdir -p admin)",
+      "Bash(git mv *)",
+      "Bash(mv admin.html admin/index.html)"
+    ],
+    "additionalDirectories": [
+      "/Users/mac/Downloads/ozichat app/admin-web"
     ]
   }
 }
