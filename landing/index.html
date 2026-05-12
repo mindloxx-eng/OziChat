@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OziChat — A New Era of Connection</title>
+    <meta name="theme-color" content="#050714" />
+    <meta name="description" content="OziChat: A beautifully crafted world of real-time messaging, HD calling and immersive video — built from the ground up for delight." />
+    <meta property="og:title" content="OziChat — A New Era of Connection" />
+    <meta property="og:description" content="Real-time messaging, HD audio & video, short video feed and communities." />
+    <meta property="og:type" content="website" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <style>
+      html, body { margin: 0; padding: 0; background: #050714; color: #fff; font-family: 'Poppins', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+      *::-webkit-scrollbar { width: 10px; height: 10px; }
+      *::-webkit-scrollbar-track { background: transparent; }
+      *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 8px; }
+      *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+      ::selection { background: rgba(63,155,255,0.35); }
+
+      @keyframes ozi-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+      @keyframes ozi-pulse-dot { 0%, 60%, 100% { opacity: 0.25; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
+      @keyframes ozi-blob { 0%, 100% { transform: translate(0,0) scale(1); } 33% { transform: translate(30px,-20px) scale(1.05); } 66% { transform: translate(-20px,15px) scale(0.95); } }
+      .ozi-float { animation: ozi-float 6s ease-in-out infinite; }
+      .ozi-blob { animation: ozi-blob 18s ease-in-out infinite; }
+      .ozi-typing-dot { animation: ozi-pulse-dot 1.4s infinite; }
+      .ozi-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+      .ozi-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "react/": "https://aistudiocdn.com/react@^19.2.0/",
+          "react": "https://aistudiocdn.com/react@^19.2.0",
+          "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <noscript>JavaScript is required to view OziChat.</noscript>
+    <div id="landing-root"></div>
+    <script type="module" src="/landing/main.tsx"></script>
+  </body>
+</html>
