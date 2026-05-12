@@ -2,10 +2,6 @@ import React from 'react';
 import {
   DashboardIcon,
   UsersIcon,
-  ChatIcon,
-  VideoIcon,
-  MapIcon,
-  SettingsIcon,
   LogoutIcon,
   SearchIcon,
   BellIcon,
@@ -20,6 +16,7 @@ interface AdminShellProps {
   onLogout: () => void;
   title: string;
   subtitle?: string;
+  adminName: string;
   adminEmail: string;
   search?: { value: string; onChange: (v: string) => void; placeholder?: string };
   children: React.ReactNode;
@@ -27,11 +24,7 @@ interface AdminShellProps {
 
 const NAV: { id: AdminRoute; label: string; icon: React.FC<React.SVGProps<SVGSVGElement>>; group?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: DashboardIcon, group: 'Overview' },
-  { id: 'users', label: 'Users', icon: UsersIcon, group: 'Overview' },
-  { id: 'chats', label: 'Chats & Groups', icon: ChatIcon, group: 'Modules' },
-  { id: 'reels', label: 'Reels', icon: VideoIcon, group: 'Modules' },
-  { id: 'map', label: 'Live Map', icon: MapIcon, group: 'Modules' },
-  { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'System' },
+  { id: 'users', label: 'User management', icon: UsersIcon, group: 'Overview' },
 ];
 
 const AdminShell: React.FC<AdminShellProps> = ({
@@ -40,10 +33,12 @@ const AdminShell: React.FC<AdminShellProps> = ({
   onLogout,
   title,
   subtitle,
+  adminName,
   adminEmail,
   search,
   children,
 }) => {
+  const initial = (adminName || adminEmail || 'A').slice(0, 1).toUpperCase();
   return (
     <div className="min-h-screen w-full bg-[#0B0E14] text-white relative overflow-hidden">
       <div
@@ -103,10 +98,10 @@ const AdminShell: React.FC<AdminShellProps> = ({
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#3F9BFF] to-[#8a5bff] flex items-center justify-center font-black">
-                  A
+                  {initial}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[12px] font-bold truncate">Admin</div>
+                  <div className="text-[12px] font-bold truncate">{adminName || 'Admin'}</div>
                   <div className="text-[10px] text-white/40 truncate">{adminEmail}</div>
                 </div>
               </div>

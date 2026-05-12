@@ -1,21 +1,11 @@
 import { useEffect, useState } from 'react';
 
-export type AdminRoute =
-  | 'dashboard'
-  | 'users'
-  | 'chats'
-  | 'reels'
-  | 'map'
-  | 'settings';
+export type AdminRoute = 'dashboard' | 'users';
 
 const parse = (): AdminRoute => {
   const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();
   switch (raw) {
     case 'users':
-    case 'chats':
-    case 'reels':
-    case 'map':
-    case 'settings':
     case 'dashboard':
       return raw;
     default:
