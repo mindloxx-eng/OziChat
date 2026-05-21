@@ -11,10 +11,11 @@
 //   • throws ApiError(message, status, fieldErrors) on non-2xx / success:false
 //   • on 401, clears the session and reloads the page (auto sign-out)
 
-// vite.config.ts inlines this as a string literal. Falls back to '' so calls
-// use relative paths when no env var is set (useful for same-origin proxying).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const API_BASE: string = ((globalThis as any).process?.env?.API_BASE_URL ?? '') as string;
+// vite.config.ts inlines `process.env.API_BASE_URL` as a string literal at
+// build time. NOTE: the reference MUST be the exact text `process.env.API_BASE_URL`
+// — anything fancier (optional chaining, globalThis indirection) defeats the
+// define replacement and leaves the var empty in production.
+const API_BASE: string = process.env.API_BASE_URL || '';
 
 // ─────────────────────────── Types — match server DTOs ───────────────────────────
 
