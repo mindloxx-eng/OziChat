@@ -63,13 +63,13 @@ const Hero: React.FC = () => (
             <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M17.5 12.5c0-2.5 2-3.7 2.1-3.8a4.5 4.5 0 0 0-3.5-1.9c-1.5-.1-2.9.9-3.6.9s-1.9-.9-3.1-.9a4.7 4.7 0 0 0-4 2.4c-1.7 3-.4 7.5 1.3 9.9.8 1.2 1.8 2.6 3.1 2.5 1.3 0 1.7-.8 3.2-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4a10 10 0 0 0 1.4-2.8 4.4 4.4 0 0 1-2.1-3.9zM15 4.5a4.3 4.3 0 0 0 1-3.2 4.4 4.4 0 0 0-2.8 1.5 4.1 4.1 0 0 0-1 3.1 3.6 3.6 0 0 0 2.8-1.4z" /></svg>
             Download for Android
           </a>
-          <a
+          {/* <a
             href="/"
             className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-bold tracking-tight border border-white/20 hover:border-white/40 hover:bg-white/[0.04] transition-all"
           >
             Open Ozi Web
             <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
-          </a>
+          </a> */}
         </div>
 
         <div className="mt-10 flex flex-wrap gap-6 justify-center lg:justify-start text-[11px] font-bold uppercase tracking-widest text-white/40">

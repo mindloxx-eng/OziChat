@@ -6,7 +6,24 @@
       "Bash(mkdir -p \"/Users/mac/Downloads/ozichat app/admin-web/components\" \"/Users/mac/Downloads/ozichat app/admin-web/pages\" \"/Users/mac/Downloads/ozichat app/admin-web/hooks\" \"/Users/mac/Downloads/ozichat app/admin-web/icons\" && echo \"ok\")",
       "Bash(mkdir -p admin)",
       "Bash(git mv *)",
-      "Bash(mv admin.html admin/index.html)"
+      "Bash(mv admin.html admin/index.html)",
+      "Bash(aws --version)",
+      "Bash(aws s3 *)",
+      "Bash(curl -sS -o /dev/null -w \"STATUS=%{http_code}  SIZE=%{size_download}\\\\n\" http://ozichat-admin-2026.s3-website-us-east-1.amazonaws.com)",
+      "Bash(curl -sS http://ozichat-admin-2026.s3-website-us-east-1.amazonaws.com/assets/admin-GqPFtvkD.js)",
+      "Bash(host ozichats.com)",
+      "Bash(timeout 10 bash -c 'cat < /dev/tcp/ozichats.com/8080')",
+      "Bash(timeout 5 curl -sS -X POST \"http://ozichats.com:8080/api/v1/auth/login\" -H \"Content-Type: application/json\" -d '{\"identifier\":\"test\",\"password\":\"test\",\"platform\":\"admin-web\",\"deviceFingerprint\":\"diag\"}' -w \"\\\\nHTTP=%{http_code} TIME=%{time_total}s\\\\n\")",
+      "Bash(timeout 5 curl -sS -o /dev/null -w \"HTTP=%{http_code} TIME=%{time_total}s\\\\n\" \"http://ozichats.com/api/v1/auth/login\" -X POST -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(timeout 5 curl -sS -o /dev/null -w \"HTTP=%{http_code} TIME=%{time_total}s\\\\n\" \"https://ozichats.com/api/v1/auth/login\" -X POST -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(timeout 5 curl -sS -o /dev/null -w \"HTTP=%{http_code} TIME=%{time_total}s\\\\n\" \"http://16.16.206.14:8080/api/v1/auth/login\" -X POST -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(curl -sS -o /dev/null -w \"Location: %{redirect_url}\\\\nHTTP=%{http_code}\\\\n\" \"http://ozichats.com/api/v1/auth/login\" -X POST)",
+      "Bash(timeout 5 curl -sS -o /dev/null -w \"HTTP=%{http_code}\\\\n\" \"http://16.16.206.14:8080/swagger-ui/index.html\")",
+      "Bash(curl -sS -i -X OPTIONS http://16.16.206.14:8080/api/v1/auth/login -H 'Origin: http://ozichat-admin-2026.s3-website-us-east-1.amazonaws.com' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: Content-Type')",
+      "Bash(curl -sS -o /dev/null -w \"HTTP=%{http_code}\\\\n\" http://ozichat-admin-2026.s3-website-us-east-1.amazonaws.com/)",
+      "Bash(curl -sS -o /dev/null -w \"HTTP=%{http_code}\\\\n\" http://ozichat-admin-2026.s3-website-us-east-1.amazonaws.com/admin/)",
+      "Bash(curl -sS http://ozichat-admin-2026.s3-website-us-east-1.amazonaws.com/)",
+      "Bash(curl -sS http://ozichat-admin-2026.s3-website-us-east-1.amazonaws.com/admin/)"
     ],
     "additionalDirectories": [
       "/Users/mac/Downloads/ozichat app/admin-web"
