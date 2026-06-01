@@ -926,7 +926,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                 </div>
             )}
 
-            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-transparent to-black/40 flex flex-col justify-end p-6 pb-24">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-transparent to-black/40 flex flex-col justify-end p-6 pb-3">
                 <div className="flex items-end justify-between gap-4">
                     <div className="flex-1 space-y-4 max-w-[82%] animate-fade-in-up">
                         <div className="flex items-center gap-3">
@@ -955,34 +955,34 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                         </div>
                     </div>
 
-                    <div className="flex flex-col items-center gap-6 mb-4">
+                    <div className="flex flex-col items-center gap-3 mb-2 relative z-[70]">
                         <button onClick={(e) => { e.stopPropagation(); handleToggleLike(video); }} className="flex flex-col items-center gap-1 group">
-                            <div className={`p-3.5 rounded-2xl backdrop-blur-xl transition-all duration-300 ${likedVideos.has(video.remoteId || video.id) ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-white/10 text-white border border-white/10 group-hover:bg-white/20'}`}>
-                                <HeartIcon className={`w-6 h-6 ${likedVideos.has(video.remoteId || video.id) ? 'fill-current' : ''}`} />
+                            <div className={`p-2.5 rounded-xl backdrop-blur-xl transition-all duration-300 ${likedVideos.has(video.remoteId || video.id) ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-white/10 text-white border border-white/10 group-hover:bg-white/20'}`}>
+                                <HeartIcon className={`w-5 h-5 ${likedVideos.has(video.remoteId || video.id) ? 'fill-current' : ''}`} />
                             </div>
                             <span className="text-[10px] font-black text-white/80">{video.likes}</span>
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); setShowComments(video); }} className="flex flex-col items-center gap-1 group">
-                            <div className="p-3.5 bg-white/10 border border-white/10 rounded-2xl backdrop-blur-xl text-white group-hover:bg-white/20 transition-all">
-                                <ChatBubbleIcon className="w-6 h-6" />
+                            <div className="p-2.5 bg-white/10 border border-white/10 rounded-xl backdrop-blur-xl text-white group-hover:bg-white/20 transition-all">
+                                <ChatBubbleIcon className="w-5 h-5" />
                             </div>
                             <span className="text-[10px] font-black text-white/80">{video.comments}</span>
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); handleShare(video); }} className="flex flex-col items-center gap-1 group">
-                            <div className={`p-3.5 rounded-2xl backdrop-blur-xl transition-all duration-300 ${sharedVideoId === video.id ? 'bg-green-500 text-white' : 'bg-white/10 text-white border border-white/10 group-hover:bg-white/20'}`}>
-                                {sharedVideoId === video.id ? <CheckIcon className="w-6 h-6" /> : <ShareIcon className="w-6 h-6" />}
+                            <div className={`p-2.5 rounded-xl backdrop-blur-xl transition-all duration-300 ${sharedVideoId === video.id ? 'bg-green-500 text-white' : 'bg-white/10 text-white border border-white/10 group-hover:bg-white/20'}`}>
+                                {sharedVideoId === video.id ? <CheckIcon className="w-5 h-5" /> : <ShareIcon className="w-5 h-5" />}
                             </div>
                             <span className="text-[10px] font-black text-white/80">{sharedVideoId === video.id ? 'Copied' : (video.shareCount ? formatCount(video.shareCount) : 'Share')}</span>
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); setShowAIInsight(video.id); }} className="flex flex-col items-center gap-1 group">
-                            <div className="p-3.5 bg-gradient-to-br from-indigo-500 to-violet-700 rounded-2xl shadow-xl hover:scale-110 transition-all border border-white/10">
-                                <SparklesIcon className="w-6 h-6 text-white" />
+                            <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-violet-700 rounded-xl shadow-xl hover:scale-110 transition-all border border-white/10">
+                                <SparklesIcon className="w-5 h-5 text-white" />
                             </div>
                         </button>
                         {currentUserId && video.authorUserId === currentUserId && video.remoteId && (
                             <button onClick={(e) => { e.stopPropagation(); handleDeleteReel(video); }} className="flex flex-col items-center gap-1 group">
-                                <div className="p-3.5 bg-white/10 border border-white/10 rounded-2xl backdrop-blur-xl text-red-400 group-hover:bg-red-500/20 transition-all">
-                                    <TrashIcon className="w-6 h-6" />
+                                <div className="p-2.5 bg-white/10 border border-white/10 rounded-xl backdrop-blur-xl text-red-400 group-hover:bg-red-500/20 transition-all">
+                                    <TrashIcon className="w-5 h-5" />
                                 </div>
                                 <span className="text-[10px] font-black text-white/60">Delete</span>
                             </button>
@@ -990,7 +990,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                     </div>
                 </div>
             </div>
-            <div className="absolute bottom-20 left-0 right-0 h-0.5 bg-white/5">
+            <div className="absolute left-0 right-0 h-0.5 bg-white/5 bottom-0">
                 <div className="h-full bg-indigo-500 shadow-[0_0_8px_#6366f1] transition-all duration-100 ease-linear" style={{ width: `${progress}%` }} />
             </div>
         </div>
@@ -1007,7 +1007,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                   <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-[60px] -translate-y-1/2 translate-x-1/2"></div>
                   
                   <button onClick={() => setViewingAuthor(null)} className="absolute top-8 right-8 p-3 bg-white/5 rounded-full text-slate-400 hover:text-white transition-colors z-20">
-                      <CloseIcon className="w-6 h-6" />
+                      <CloseIcon className="w-5 h-5" />
                   </button>
 
                   <div className="flex flex-col items-center gap-6 relative z-10">
@@ -1057,7 +1057,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                               <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-3">Recent Reels</p>
                               {authorReelsLoading ? (
                                   <div className="flex justify-center py-6">
-                                      <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                                      <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
                                   </div>
                               ) : authorReels.length === 0 ? (
                                   <p className="text-center text-[9px] text-slate-600 font-black uppercase tracking-[0.3em] py-4">No reels yet</p>
@@ -1106,8 +1106,8 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
       `}</style>
 
       {/* Futuristic Sticky Header */}
-      <header className="absolute top-0 left-0 right-0 z-[60] bg-gradient-to-b from-black/80 to-transparent backdrop-blur-xl pt-10 pb-4">
-          <div className="flex items-center justify-between px-6 mb-8">
+      <header className="absolute top-0 left-0 right-0 z-[60] bg-gradient-to-b from-black/80 to-transparent backdrop-blur-xl pt-3 pb-4">
+          <div className="flex items-center justify-between px-6 mb-3">
               <div className="flex items-center gap-3">
                   <h1 className="text-xl font-black tracking-tighter text-indigo-400">CHANNELS</h1>
               </div>
@@ -1121,7 +1121,7 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
               </div>
           </div>
 
-          <div className="flex justify-center gap-8 mb-4">
+          <div className="flex justify-center gap-8 mb-3">
               {([
                   { label: 'FOR YOU', value: 'for-you' as const },
                   { label: 'FOLLOWING', value: 'following' as const },
@@ -1246,10 +1246,10 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
 
       {/* Search Overlay */}
       {isSearching && (
-          <div className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-3xl p-8 animate-fade-in flex flex-col text-[#F1F5F9]">
+          <div className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-3xl p-8 animate-fade-in flex flex-col text-[#F1F5F9]" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 2rem)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 2rem)' }}>
               <div className="flex justify-between items-center mb-12">
                   <h2 className="text-2xl font-black text-indigo-400 tracking-tight">SEARCH</h2>
-                  <button onClick={() => setIsSearching(false)} className="p-3 bg-white/5 rounded-full"><CloseIcon className="w-6 h-6 text-white/60" /></button>
+                  <button onClick={() => setIsSearching(false)} className="p-3 bg-white/5 rounded-full"><CloseIcon className="w-5 h-5 text-white/60" /></button>
               </div>
               <input 
                 autoFocus
@@ -1290,14 +1290,14 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                       <div className="w-12 h-1.5 bg-slate-800 rounded-full mb-6"></div>
                       <div className="flex items-center justify-between w-full px-2 mb-4 text-[#F1F5F9]">
                           <h3 className="font-black text-2xl tracking-tighter uppercase text-indigo-400">{showComments.comments} Community Notes</h3>
-                          <button onClick={() => setShowComments(null)} className="p-3 bg-white/5 rounded-full text-white/50"><CloseIcon className="w-6 h-6" /> </button>
+                          <button onClick={() => setShowComments(null)} className="p-3 bg-white/5 rounded-full text-white/50"><CloseIcon className="w-5 h-5" /> </button>
                       </div>
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-8 space-y-8 pb-8 custom-scrollbar">
                       {commentsLoading && (!showComments.commentList || showComments.commentList.length === 0) && (
                           <div className="flex justify-center py-8">
-                              <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                              <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
                           </div>
                       )}
                       {showComments.commentList?.map(comment => {
@@ -1352,14 +1352,14 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                       <div className="w-12 h-1.5 bg-slate-800 rounded-full mb-6"></div>
                       <div className="flex items-center justify-between w-full px-2 mb-4 text-[#F1F5F9]">
                           <h3 className="font-black text-2xl tracking-tighter uppercase text-indigo-400">Share to Chat</h3>
-                          <button onClick={() => { setShareSheetFor(null); setShareStatus(null); }} className="p-3 bg-white/5 rounded-full text-white/50"><CloseIcon className="w-6 h-6" /></button>
+                          <button onClick={() => { setShareSheetFor(null); setShareStatus(null); }} className="p-3 bg-white/5 rounded-full text-white/50"><CloseIcon className="w-5 h-5" /></button>
                       </div>
                   </div>
 
                   <div className="flex-1 overflow-y-auto px-6 space-y-3 pb-8 custom-scrollbar">
                       {conversationsLoading && (
                           <div className="flex justify-center py-10">
-                              <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                              <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
                           </div>
                       )}
                       {!conversationsLoading && conversations.length === 0 && (
@@ -1397,9 +1397,9 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
 
       {/* Upload View */}
       {showUpload && (
-          <div className="fixed inset-0 z-[100] upload-hud-glass flex flex-col animate-fade-in text-[#F1F5F9] overflow-y-auto custom-scrollbar">
-              <header className="p-6 pt-10 flex items-center justify-between border-b border-white/5 sticky top-0 bg-slate-900/90 backdrop-blur-2xl z-30">
-                  <button onClick={() => { setShowUpload(false); handleStopRecording(); setUploadVideoUrl(null); }} className="p-2 hover:bg-white/5 rounded-full transition-colors"><CloseIcon className="w-6 h-6 text-slate-400" /></button>
+          <div className="fixed inset-0 z-[100] upload-hud-glass flex flex-col animate-fade-in text-[#F1F5F9] overflow-y-auto custom-scrollbar" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+              <header className="p-6 flex items-center justify-between border-b border-white/5 sticky top-0 bg-slate-900/90 backdrop-blur-2xl z-30" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}>
+                  <button onClick={() => { setShowUpload(false); handleStopRecording(); setUploadVideoUrl(null); }} className="p-2 hover:bg-white/5 rounded-full transition-colors"><CloseIcon className="w-5 h-5 text-slate-400" /></button>
                   <h2 className="font-black text-xl tracking-[0.1em] uppercase text-[#F1F5F9]">Deploy Transmission</h2>
                   <button
                     onClick={handlePublish} disabled={isPublishing || !uploadVideoUrl}
