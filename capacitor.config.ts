@@ -11,7 +11,12 @@ const config: CapacitorConfig = {
     // cleartext: true
   },
   android: {
-    allowMixedContent: true
+    allowMixedContent: true,
+    backgroundColor: '#0B0E14',
+  },
+  ios: {
+    backgroundColor: '#0B0E14',
+    contentInset: 'never',
   },
   plugins: {
     CapacitorHttp: {

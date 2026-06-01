@@ -34,7 +34,7 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({
   ];
 
   return (
-    <footer className="shrink-0 bg-white/95 dark:bg-[#111827]/90 backdrop-blur-2xl border-t border-gray-100 dark:border-white/5 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] transition-colors duration-300">
+    <footer className="shrink-0 bg-white/95 dark:bg-[#111827]/90 backdrop-blur-2xl border-t border-gray-100 dark:border-white/5 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] transition-colors duration-300 pb-[env(safe-area-inset-bottom)]">
       <nav className="flex justify-around items-center h-16 px-2">
         {navItems.map(item => {
           const isActive = activeScreen === item.id;
