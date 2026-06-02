@@ -6,9 +6,8 @@ workflows:
     integrations:
       app_store_connect: AppStoreConnect
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.ozichat.app
+      groups:
+        - ios_signing  # Group with CERTIFICATE_PRIVATE_KEY, CERTIFICATE_PASSWORD, PROVISIONING_PROFILE
       vars:
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
         XCODE_SCHEME: "App"
@@ -17,14 +16,6 @@ workflows:
       node: 20
       xcode: latest
       cocoapods: default
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main
-          include: true
-          source: true
-      cancel_previous_builds: true
     scripts:
       - name: Install npm dependencies
         script: |
@@ -39,7 +30,19 @@ workflows:
         script: |
           cd ios/App
           pod install
-      - name: Set up provisioning profiles
+      - name: Set up signing certificate
+        script: |
+          keychain initialize
+          echo "$CERTIFICATE_PRIVATE_KEY" | base64 --decode > /tmp/certificate.p12
+          keychain add-certificates --certificate /tmp/certificate.p12 --certificate-password "$CERTIFICATE_PASSWORD"
+      - name: Set up provisioning profile
+        script: |
+          PROFILES_HOME="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_HOME"
+          PROFILE_PATH="$PROFILES_HOME/OziChat_AppStore.mobileprovision"
+          echo "$PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
+          echo "✓ Profile installed at $PROFILE_PATH"
+      - name: Set up code signing for Xcode project
         script: |
           xcode-project use-profiles
       - name: Increment build number
@@ -55,7 +58,6 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
     publishing:
       app_store_connect:
         auth: integration
