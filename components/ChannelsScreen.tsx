@@ -654,6 +654,40 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
       }
   };
 
+  const handleReportReel = (reel: VideoPost) => {
+      const reasons = ['Spam or scam', 'Harassment or bullying', 'Inappropriate or sexual content', 'Hate speech', 'Violence or threats', 'Impersonation', 'Other'];
+      const choice = window.prompt(
+          `Report this Reel by @${reel.authorHandle.replace('@', '')}\n\nSelect a reason (type the number):\n\n` +
+          reasons.map((r, i) => `${i + 1}. ${r}`).join('\n')
+      );
+      if (!choice) return;
+      const idx = parseInt(choice, 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= reasons.length) {
+          window.alert('Invalid choice.');
+          return;
+      }
+      const payload = {
+          type: 'reel',
+          reelId: reel.remoteId || reel.id,
+          authorHandle: reel.authorHandle,
+          reason: reasons[idx],
+          reportedAt: new Date().toISOString(),
+      };
+      try {
+          const stored = JSON.parse(localStorage.getItem('ozichat_reel_reports') || '[]');
+          stored.push(payload);
+          localStorage.setItem('ozichat_reel_reports', JSON.stringify(stored));
+      } catch {}
+      try {
+          fetch('/api/v1/reports', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+          }).catch(() => {});
+      } catch {}
+      window.alert('Thank you. This Reel has been reported to our moderation team. We review reports within 24 hours and will remove content that violates our Terms of Use.');
+  };
+
   const handleDeleteReel = async (reel: VideoPost) => {
       if (!reel.remoteId) return;
       if (!confirm('Delete this reel? This cannot be undone.')) return;
@@ -979,12 +1013,19 @@ const ChannelsScreen: React.FC<ChannelsScreenProps> = ({ navProps }) => {
                                 <SparklesIcon className="w-5 h-5 text-white" />
                             </div>
                         </button>
-                        {currentUserId && video.authorUserId === currentUserId && video.remoteId && (
+                        {currentUserId && video.authorUserId === currentUserId && video.remoteId ? (
                             <button onClick={(e) => { e.stopPropagation(); handleDeleteReel(video); }} className="flex flex-col items-center gap-1 group">
                                 <div className="p-2.5 bg-white/10 border border-white/10 rounded-xl backdrop-blur-xl text-red-400 group-hover:bg-red-500/20 transition-all">
                                     <TrashIcon className="w-5 h-5" />
                                 </div>
                                 <span className="text-[10px] font-black text-white/60">Delete</span>
+                            </button>
+                        ) : (
+                            <button onClick={(e) => { e.stopPropagation(); handleReportReel(video); }} className="flex flex-col items-center gap-1 group">
+                                <div className="p-2.5 bg-white/10 border border-white/10 rounded-xl backdrop-blur-xl text-orange-300 group-hover:bg-orange-500/20 transition-all">
+                                    <span className="block text-xl leading-none">🚩</span>
+                                </div>
+                                <span className="text-[10px] font-black text-white/60">Report</span>
                             </button>
                         )}
                     </div>

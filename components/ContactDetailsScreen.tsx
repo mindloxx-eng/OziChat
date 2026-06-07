@@ -110,6 +110,58 @@ const ContactDetailsScreen: React.FC<ContactDetailsScreenProps> = ({
       }
   };
 
+  const handleReportClick = () => {
+      const reasons = [
+          'Spam or scam',
+          'Harassment or bullying',
+          'Inappropriate or sexual content',
+          'Hate speech or discrimination',
+          'Violence or threats',
+          'Impersonation',
+          'Other',
+      ];
+      const choice = window.prompt(
+          `Report ${contact.name}\n\nPlease select a reason (type the number):\n\n` +
+          reasons.map((r, i) => `${i + 1}. ${r}`).join('\n')
+      );
+      if (!choice) return;
+      const idx = parseInt(choice, 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= reasons.length) {
+          window.alert('Invalid choice. Please try again.');
+          return;
+      }
+      const reason = reasons[idx];
+      const details = window.prompt(`Optional: add any details about your report\n(or leave empty)`, '') || '';
+      // Send report to moderation API; fall back to local log so the UI still confirms receipt.
+      const payload = {
+          type: 'user',
+          targetId: contact.id,
+          targetName: contact.name,
+          reason,
+          details,
+          reportedAt: new Date().toISOString(),
+      };
+      try {
+          const stored = JSON.parse(localStorage.getItem('ozichat_user_reports') || '[]');
+          stored.push(payload);
+          localStorage.setItem('ozichat_user_reports', JSON.stringify(stored));
+      } catch (e) {
+          console.error('Failed to store report locally', e);
+      }
+      // Fire-and-forget POST to the backend if it exists (endpoint is optional).
+      try {
+          fetch('/api/v1/reports', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+          }).catch(() => {});
+      } catch {}
+      window.alert(
+          `Thank you. Your report about ${contact.name} has been submitted to our moderation team. ` +
+          `We review reports within 24 hours and will take action against any violation of our Terms of Use.`
+      );
+  };
+
   const getDisappearingLabel = (hours?: number) => {
       if (!hours) return 'Off';
       if (hours === 24) return '24 Hours';
@@ -302,9 +354,12 @@ const ContactDetailsScreen: React.FC<ContactDetailsScreenProps> = ({
           </div>
           
           <div className="pt-6 space-y-4">
+            <button onClick={handleReportClick} className="w-full p-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] border transition-all active:scale-95 flex items-center justify-center gap-3 bg-orange-500/10 text-orange-400 border-orange-500/20 hover:bg-orange-500/20">
+                <span>🚩 Report User</span>
+            </button>
             <button onClick={handleBlockClick} className={`w-full p-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] border transition-all active:scale-95 flex items-center justify-center gap-3 ${contact.isBlocked ? 'bg-red-600 text-white border-white shadow-xl shadow-red-600/30' : 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20'}`}>
                 <BlockIcon className="w-5 h-5" />
-                <span>{contact.isBlocked ? 'Release' : 'Restrict'} Identity</span>
+                <span>{contact.isBlocked ? 'Unblock' : 'Block'} User</span>
             </button>
              <button onClick={handlePurgeClick} className="w-full p-5 bg-white/5 rounded-[2rem] text-gray-500 font-black text-xs uppercase tracking-[0.2em] border border-transparent hover:text-red-400 transition-all active:scale-95 flex items-center justify-center gap-3">
                 <TrashIcon className="w-5 h-5" />

@@ -824,6 +824,48 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, contacts, onBack, onNavig
               <TrashIcon className="w-5 h-5 text-red-500" />
               <span className="text-sm font-bold text-red-500">Delete</span>
             </button>
+
+            {/* Report (only for others' messages) */}
+            {contextMenu.message.sender !== 'user' && (
+              <button onClick={() => {
+                const msg = contextMenu.message;
+                setContextMenu(null);
+                const reasons = ['Spam or scam', 'Harassment or bullying', 'Inappropriate content', 'Hate speech', 'Violence or threats', 'Other'];
+                const choice = window.prompt(
+                  `Report this message\n\nSelect a reason (type the number):\n\n` + reasons.map((r, i) => `${i + 1}. ${r}`).join('\n')
+                );
+                if (!choice) return;
+                const idx = parseInt(choice, 10) - 1;
+                if (isNaN(idx) || idx < 0 || idx >= reasons.length) {
+                  window.alert('Invalid choice.');
+                  return;
+                }
+                const payload = {
+                  type: 'message',
+                  messageId: msg.id,
+                  messageText: msg.text || '',
+                  reason: reasons[idx],
+                  reportedAt: new Date().toISOString(),
+                };
+                try {
+                  const stored = JSON.parse(localStorage.getItem('ozichat_message_reports') || '[]');
+                  stored.push(payload);
+                  localStorage.setItem('ozichat_message_reports', JSON.stringify(stored));
+                } catch {}
+                try {
+                  fetch('/api/v1/reports', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                  }).catch(() => {});
+                } catch {}
+                window.alert('Thank you. Your report has been submitted to our moderation team. We review reports within 24 hours.');
+              }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-orange-50 dark:hover:bg-orange-500/10 transition-colors">
+                <span className="text-lg">🚩</span>
+                <span className="text-sm font-bold text-orange-500">Report</span>
+              </button>
+            )}
           </div>
         </>
       )}

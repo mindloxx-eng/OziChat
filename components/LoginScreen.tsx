@@ -16,6 +16,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onEmailSubmit, onAuthSuccess 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'login' | 'register' | 'otp'>('login');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim() || isLoading) return;
@@ -34,6 +35,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onEmailSubmit, onAuthSuccess 
 
   const handleRegister = async () => {
     if (!email.trim() || !password.trim() || !displayName.trim() || isLoading) return;
+    if (!agreedToTerms) {
+      setError('Please agree to the Terms of Use and Privacy Policy to continue.');
+      return;
+    }
     setError('');
     setIsLoading(true);
 
@@ -91,7 +96,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onEmailSubmit, onAuthSuccess 
     isLoading ||
     !email.trim() ||
     (mode !== 'otp' && !password.trim()) ||
-    (mode === 'register' && !displayName.trim());
+    (mode === 'register' && !displayName.trim()) ||
+    (mode === 'register' && !agreedToTerms);
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-between p-8 bg-gradient-to-b from-[#0F172A] to-[#1E3A8A] text-white">
@@ -167,6 +173,39 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onEmailSubmit, onAuthSuccess 
                 autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
               />
             </div>
+          </div>
+        )}
+
+        {mode === 'register' && (
+          <div className="flex items-start gap-3 px-1 pt-2">
+            <input
+              type="checkbox"
+              id="terms"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-1 w-5 h-5 rounded accent-[#3F9BFF] flex-shrink-0 cursor-pointer"
+            />
+            <label htmlFor="terms" className="text-xs text-gray-300 leading-relaxed cursor-pointer">
+              I agree to the{' '}
+              <a
+                href="https://fancy-pavlova-31be2d.netlify.app/terms.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#3F9BFF] underline"
+              >
+                Terms of Use (EULA)
+              </a>
+              {' '}and{' '}
+              <a
+                href="https://fancy-pavlova-31be2d.netlify.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#3F9BFF] underline"
+              >
+                Privacy Policy
+              </a>
+              . I understand there is zero tolerance for objectionable content or abusive users, and that violators will be removed within 24 hours.
+            </label>
           </div>
         )}
 
