@@ -215,24 +215,6 @@ const ContactsScreen: React.FC<ContactsScreenProps> = ({ chatList, onSelectChat,
       </header>
 
       <main className="flex-1 overflow-y-auto px-4 pb-4 mt-4 custom-scrollbar">
-        <div 
-            onClick={onNavigateToAI}
-            className="flex items-center gap-4 p-5 mb-6 rounded-[1.8rem] bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 cursor-pointer hover:shadow-xl hover:shadow-indigo-500/5 hover:scale-[1.01] transition-all group relative overflow-hidden"
-        >
-            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-700 to-indigo-900 flex items-center justify-center text-white shadow-lg group-hover:scale-105 transition-transform">
-                <AIAssistantIcon className="w-8 h-8" />
-            </div>
-            <div className="flex-1 relative z-10">
-                <div className="flex justify-between items-center">
-                    <h2 className="font-black text-lg tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">Ozi AI</h2>
-                    <span className="text-[9px] font-black px-2 py-1 rounded-lg bg-indigo-600 text-white shadow-md">ONLINE</span>
-                </div>
-                <p className="text-gray-500 dark:text-slate-400 text-sm font-medium">Transmissions Summary & Mapping Engine</p>
-            </div>
-            <ChevronRightIcon className="w-5 h-5 text-gray-400 group-hover:translate-x-1 transition-transform" />
-        </div>
-
         {filteredChatList.length > 0 ? (
             <div className="flex flex-col">
                 {filteredChatList.map(item => (

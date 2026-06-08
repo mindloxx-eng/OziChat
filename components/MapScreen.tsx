@@ -91,6 +91,18 @@ const MapScreen: React.FC<MapScreenProps> = ({ contacts, advertisements, onBack,
   const [radarFilter, setRadarFilter] = useState<RadarFilter>('all');
   const [radarRotation, setRadarRotation] = useState(0);
   const [detectedIds, setDetectedIds] = useState<Set<string>>(new Set());
+  // Per Apple Guideline 5.1.2: the user must manually check in each time they want
+  // their location shared on the map. There is no persistent "always on" option —
+  // this resets on every Map open and is cleared automatically on navigate-away.
+  const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [showCheckInPrompt, setShowCheckInPrompt] = useState(true);
+
+  // Auto check-out when the screen is dismissed/unmounted.
+  useEffect(() => {
+    return () => {
+      setIsCheckedIn(false);
+    };
+  }, []);
 
   const [atmosphericData, setAtmosphericData] = useState<AtmosphericData>({
       city: 'San Francisco',
@@ -124,15 +136,21 @@ const MapScreen: React.FC<MapScreenProps> = ({ contacts, advertisements, onBack,
     setUserAvatar(localStorage.getItem('ozichat_profile_picture'));
   }, []);
 
+  // Geolocation only starts AFTER the user explicitly checks in.
+  // If the user checks out (or navigates away), we drop the location.
   useEffect(() => {
+    if (!isCheckedIn) {
+      setUserLocation(null);
+      return;
+    }
     const geo = navigator.geolocation;
     if (!geo) return;
     const watcher = geo.watchPosition(
       (pos) => {
-          setUserLocation({ 
-              latitude: pos.coords.latitude, 
-              longitude: pos.coords.longitude, 
-              altitude: pos.coords.altitude || 32.4 
+          setUserLocation({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              altitude: pos.coords.altitude || 32.4
           });
       },
       () => {
@@ -141,7 +159,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ contacts, advertisements, onBack,
       { enableHighAccuracy: true }
     );
     return () => geo.clearWatch(watcher);
-  }, []);
+  }, [isCheckedIn]);
 
   useEffect(() => {
     if (!radarEnabled || !userLocation) return;
@@ -298,6 +316,54 @@ const MapScreen: React.FC<MapScreenProps> = ({ contacts, advertisements, onBack,
 
   return (
     <div className="flex flex-col h-full bg-[#020205] text-white overflow-hidden relative font-mono select-none">
+      {/* Check-In Prompt — Apple Guideline 5.1.2 — required manual opt-in each time */}
+      {showCheckInPrompt && !isCheckedIn && (
+        <div className="absolute inset-0 z-[200] bg-black/85 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
+          <div className="bg-gradient-to-b from-slate-900 to-black border border-indigo-500/30 rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <div className="flex justify-center mb-5">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center">
+                <span className="text-3xl">📍</span>
+              </div>
+            </div>
+            <h2 className="text-2xl font-black text-center text-white mb-3 tracking-tight">Share Your Location?</h2>
+            <p className="text-sm text-slate-300 text-center mb-6 leading-relaxed">
+              To appear on the map, you need to manually <strong className="text-indigo-300">check in</strong>.
+              Your location is only shared while you stay on this screen and is removed when you navigate away.
+            </p>
+            <ul className="text-xs text-slate-400 space-y-2 mb-7 px-2">
+              <li className="flex gap-2"><span className="text-indigo-400">•</span> Your location is never shared automatically.</li>
+              <li className="flex gap-2"><span className="text-indigo-400">•</span> You must check in each time you visit the Map.</li>
+              <li className="flex gap-2"><span className="text-indigo-400">•</span> You can check out any time to stop sharing.</li>
+              <li className="flex gap-2"><span className="text-indigo-400">•</span> You can also skip and browse the map without sharing.</li>
+            </ul>
+            <div className="space-y-3">
+              <button
+                onClick={() => { setIsCheckedIn(true); setShowCheckInPrompt(false); }}
+                className="w-full bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-500 hover:to-violet-600 text-white font-black py-4 rounded-2xl text-sm uppercase tracking-widest shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
+              >
+                Check In Now
+              </button>
+              <button
+                onClick={() => { setIsCheckedIn(false); setShowCheckInPrompt(false); }}
+                className="w-full bg-white/5 hover:bg-white/10 text-slate-300 font-bold py-3 rounded-2xl text-xs uppercase tracking-widest transition-all active:scale-95"
+              >
+                Skip — Browse Without Sharing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Check Out button — visible only while checked in */}
+      {isCheckedIn && (
+        <button
+          onClick={() => { setIsCheckedIn(false); setShowCheckInPrompt(true); }}
+          className="absolute top-24 left-1/2 -translate-x-1/2 z-[150] bg-red-600/90 hover:bg-red-500 text-white font-black text-[10px] uppercase tracking-[0.2em] px-4 py-2 rounded-full backdrop-blur-md border border-red-400/30 shadow-xl shadow-red-500/30 active:scale-95 transition-all"
+        >
+          📍 Checked In · Tap to Check Out
+        </button>
+      )}
+
       <style>{`
         .grid-background {
             background-image: linear-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 102, 241, 0.08) 1px, transparent 1px);

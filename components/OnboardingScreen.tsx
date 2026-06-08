@@ -1,7 +1,7 @@
 import React from 'react';
 import { LogoIcon } from './icons/LogoIcon';
 import { ShieldCheckIcon } from './icons/ShieldCheckIcon';
-import { AIAssistantIcon } from './icons/AIAssistantIcon';
+import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
 import { MapIcon } from './icons/MapIcon';
 
 interface OnboardingScreenProps {
@@ -29,20 +29,20 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onGetStarted }) => 
           <LogoIcon step={2} />
         </div>
         <h1 className="text-4xl font-bold mb-3 animate-fade-in-up" style={{ animationDelay: '100ms' }}>Welcome to Ozichat</h1>
-        <p className="text-lg text-gray-300 mb-10 animate-fade-in-up" style={{ animationDelay: '200ms' }}>Secure, private messaging, powered by Gemini.</p>
+        <p className="text-lg text-gray-300 mb-10 animate-fade-in-up" style={{ animationDelay: '200ms' }}>Secure, private messaging for everyone.</p>
 
         <div className="space-y-6 text-left max-w-sm animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-            <Feature 
+            <Feature
                 icon={ShieldCheckIcon}
                 title="Secure Messaging"
                 description="Your conversations are private with end-to-end encryption."
             />
-            <Feature 
-                icon={AIAssistantIcon}
-                title="AI Assistant"
-                description="Get help, summarize chats, and more with our smart assistant."
+            <Feature
+                icon={ChatBubbleIcon}
+                title="HD Voice & Video Calls"
+                description="Crystal-clear calls from any chat with one tap."
             />
-            <Feature 
+            <Feature
                 icon={MapIcon}
                 title="Global Connection"
                 description="Connect with your friends and family, wherever they are."
